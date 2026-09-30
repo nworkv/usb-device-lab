@@ -1,23 +1,23 @@
 # USB Device Lab — WIP
 
-Закрытая экспериментальная разработка программируемого USB-устройства для Linux Raw Gadget. Репозиторий не является готовым фаззером и не проверен на физическом USB-стенде.
+Закрытый экспериментальный проект. Этот коммит содержит исполняемое базовое ядро, а не только архитектурный план.
 
-## Цель
+Реализованы JSON DeviceConfig, runtime configurations/interfaces/alternate settings, stateful Script и trusted Protocol plugins, structural Mutator и WireMutator, SQLite corpus/errors и C-коллектор USB remote KCOV.
 
-Одной JSON-конфигурацией описывать объявляемые USB-дескрипторы и исполняемую топологию: configurations, interfaces, alternate settings, endpoint'ы и обработчик поведения. Фаззер должен сохранять конфигурацию, применять structural и wire mutations, собирать remote KCOV с Linux-хоста и добавлять тест в корпус только при валидном новом покрытии.
+```sh
+make
+make test
+python3 -m usb_device_lab validate examples/composite.json
+python3 -m usb_device_lab mutate examples/composite.json mutated.json --seed 123
+python3 -m usb_device_lab seed examples/composite.json --state state
+```
 
-## Честные ограничения
+Runtime topology проверяется независимо от объявляемых байтовых дескрипторов. Повреждённые USB поля намеренно разрешены. Корпус принимает конфигурацию только по новому валидному ненасыщенному покрытию в kernel/boot/bus namespace. Ошибки сохраняются независимо; незавершённые тесты отмечаются interrupted.
 
-Raw Gadget обеспечивает низкоуровневое управление USB gadget из userspace, но не реализует автоматически протоколы любого класса. Новый backend целится в USB 2.0 full/high speed и bulk/interrupt endpoints. SuperSpeed, isochronous, USB hubs, полная class/state-machine семантика и гарантия эмуляции любого физического устройства не заявляются. Реальная возможность включить endpoint зависит от UDC.
+Коллектор собирается через make в build/kcov-remote, запускается на тестовом Linux-хосте с номером USB шины и принимает start/stop по stdin, возвращая JSON. Нужны инструментированное KCOV ядро и доступ к /sys/kernel/debug/kcov.
 
-## План компонентов
+Raw Gadget executor, управляющий host-agent, связанный аппаратный цикл фаззинга и web UI в этот коммит ещё не входят. До их загрузки CLI не подключает USB-устройства. Не заявляются SuperSpeed, isochronous, hubs, автоматическая реализация всех USB-классов и обнаружение всех ошибок. Физический USB и реальный KCOV сбор не тестировались.
 
-- `usb_device_lab.topology`: исполняемая runtime topology и проверка конфигураций/alternate settings.
-- `usb_device_lab.protocol`: stateful script handler, trusted plugins и optional reference-device proxy.
-- `usb_device_lab.mutator`: мутации JSON-дескрипторов и wire responses.
-- `usb_device_lab.raw_gadget`: executor и state machine для standard requests.
-- `host/`: remote KCOV collector и host log agent.
-- `corpus/`: SQLite corpus, errors и воспроизведение.
-- `web/`: локальный read-only error UI.
+Использовать только на выделенном стенде. Plugins — доверенный локальный код; список module:Class задаётся USB_DEVICE_LAB_PLUGINS. Текущий backend scope: USB2 full/high speed, bulk/interrupt в пределах возможностей UDC.
 
-Использовать только на выделенном тестовом стенде. Потеря SSH не является доказательством kernel panic; для жёстких падений понадобятся serial/netconsole/pstore.
+Локальная проверка этого набора: 13 unit-тестов прошли, C-коллектор собрался с -Wall -Wextra -Werror, CLI validate отработал успешно.
