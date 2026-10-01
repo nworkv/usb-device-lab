@@ -1,28 +1,13 @@
 #!/bin/sh
+# Raspberry Pi 4 bootstrap: write lab.toml via the lab CLI and run local checks.
 set -eu
-host=${1:?usage: $0 HOST_IP UDC [USB_BUS]}
-udc=${2:?usage: $0 HOST_IP UDC [USB_BUS]}
+host=${1:?usage: $0 HOST_IP [UDC] [USB_BUS] [SSH_USER]}
+udc=${2:-fe980000.usb}
 bus=${3:-1}
-cat > lab.toml <<EOF
-[gadget]
-udc = "$udc"
-device_config = "examples/composite.json"
-profile = "raspberry-pi-4"
-
-[host]
-address = "$host"
-ssh_user = "root"
-usb_bus = $bus
-
-[corpus]
-seed_dir = "corpus/seeds"
-strategy = "coverage-guided"
-
-[run]
-corpus_out = "var/corpus"
-results_dir = "var/results"
-logs_dir = "var/logs"
-EOF
-mkdir -p var/corpus var/results var/logs
-python3 -m usb_device_lab.doctor gadget --udc "$udc"
-printf '%s\n' 'lab.toml and var/ directories are ready'
+user=${4:-root}
+python3 -m usb_device_lab.lab init --host "$host" --udc "$udc" --bus "$bus" --ssh-user "$user" --profile raspberry-pi-4 --force
+python3 -m usb_device_lab.lab check --config lab.toml --local-only || {
+    echo 'Local checks failed; see FAIL lines above (dtoverlay=dwc2,dr_mode=peripheral, modprobe dwc2 raw_gadget).' >&2
+    exit 1
+}
+echo 'lab.toml ready. Next: python3 -m usb_device_lab.lab check --config lab.toml'

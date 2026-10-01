@@ -1,15 +1,32 @@
+# Copy to ./lab.toml (or generate with: python -m usb_device_lab.lab init ...).
+# Paths are resolved relative to this file.
 [gadget]
-udc = "replace-with-your-udc"
-device_config = "composite.json"
+udc = "fe980000.usb"          # /sys/class/udc entry; fe980000.usb = Raspberry Pi 4 USB-C (DWC2)
+udc_driver = ""               # Raw Gadget driver name; empty = same as udc
+device_config = "../corpus/seeds/hid-keyboard.json"   # default input for `replay`
+profile = "raspberry-pi-4"    # enables Pi 4 DWC2/USB-C checks in `check` and `fuzz`
 
 [host]
 address = "192.168.1.20"
 ssh_user = "root"
-usb_bus = 1
+ssh_port = 22
+usb_bus = 1                   # bus the gadget enumerates on (lsusb on the host)
+remote_dir = "/opt/usb-device-lab"   # clone of this repo on the host, with build/kcov-remote
+python = "python3"
+sudo = true                   # use sudo -n when ssh_user is not root
+# ssh_options = ["-oStrictHostKeyChecking=yes"]
 
 [corpus]
 seed_dir = "../corpus/seeds"
+manifest = "../corpus/manifest.toml"
 strategy = "coverage-guided"
+# families = ["hid", "cdc"]
+# profiles = ["hid/mouse", "acm"]
+
+[campaign]
+iterations = 100
+seconds = 5
+seed = 0
 
 [run]
 corpus_out = "../var/corpus"
