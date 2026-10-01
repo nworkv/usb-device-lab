@@ -1,0 +1,34 @@
+[corpus]
+format = 1
+
+[[family]]
+name = "hid"
+profiles = ["keyboard", "mouse", "consumer-control", "gamepad", "multi-report"]
+
+[[family]]
+name = "audio"
+profiles = ["uac1-playback", "uac1-capture", "uac1-duplex"]
+
+[[family]]
+name = "cdc"
+profiles = ["acm", "ecm"]
+
+[[family]]
+name = "storage"
+profiles = ["bulk-only"]
+
+[[family]]
+name = "midi"
+profiles = ["midi-streaming"]
+
+[[family]]
+name = "uvc"
+profiles = ["streaming"]
+
+[[family]]
+name = "composite"
+profiles = ["hid-cdc", "hid-audio", "hid-storage"]
+
+[[family]]
+name = "boundary"
+profiles = ["multi-config", "multi-altsetting", "endpoint-matrix"]
