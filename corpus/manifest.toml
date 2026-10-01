@@ -1,5 +1,9 @@
+# Seed corpus manifest. Each profile maps to corpus/seeds/<family>-<profile>.json.
+# Regenerate the JSON files with: python3 scripts/gen_seeds.py
+# Select a subset in lab.toml: [corpus] families = ["hid"] or profiles = ["hid/mouse", "acm"].
 [corpus]
 format = 1
+seed_dir = "seeds"
 
 [[family]]
 name = "hid"
