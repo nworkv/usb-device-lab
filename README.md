@@ -1,73 +1,70 @@
-# USB Device Lab — WIP
+# USB Device Lab
 
-Закрытый экспериментальный проект: программируемое USB 2.0 устройство на Linux Raw Gadget, структурные и сетевые (wire) мутации, сбор remote KCOV с Linux-хоста, корпус по новому покрытию и локальный интерфейс просмотра ошибок.
+USB Device Lab is a Linux USB host-stack testing lab. A gadget-side executor emulates USB devices through Raw Gadget; a host-side agent collects KCOV and kernel logs; the runner stores every invocation, coverage result and finding.
 
-**Статус.** Модули проверены unit-тестами с подставными Raw Gadget, агентом и коллектором. Не проверялись: физический UDC, реальный USB-хост, инструментированное KCOV-ядро и сквозной запуск на железе. Не считайте проект готовым фаззером.
+## Layout
 
-## Состав
+- `usb_device_lab/`: executor, runner, protocol, mutator, host agent and storage
+- `examples/`: device and lab configuration examples
+- `corpus/seeds/`: starting USB-device profiles
+- `var/corpus/`: coverage-increasing generated inputs
+- `var/results/`: one directory per run
+- `var/logs/`: gadget and host logs
 
-| Модуль | Назначение |
-|---|---|
-| `model.py`, `topology.py` | JSON-конфигурация, SHA-256, проверка configurations / interfaces / alternate settings / endpoint'ов |
-| `protocol.py` | stateful `Script`-протокол и доверенные плагины |
-| `mutator.py` | `Mutator` (дескрипторы, ответы сценария) и `WireMutator` (ответы на EP0/IN) |
-| `raw_io.py`, `device.py` | ioctl Raw Gadget и конечный автомат устройства (EP0, SET_CONFIGURATION, SET_INTERFACE, halt, endpoint-потоки) |
-| `host/kcov_remote.c` | C-коллектор remote KCOV по номеру USB-шины |
-| `host_agent.py`, `host_logs.py`, `rpc.py` | агент на хосте: коллектор, `/dev/kmsg`, JSON-lines по stdin/stdout |
-| `runner.py`, `errors.py`, `storage.py` | кампания по SSH, классификация ошибок, SQLite и корпус |
-| `web.py` | локальный read-only интерфейс (127.0.0.1) |
+## Prerequisites
 
-## Быстрая проверка без железа
+Use two Linux machines connected by USB: the gadget machine needs a UDC supported by Raw Gadget and `/dev/raw-gadget`; the host needs debugfs, KCOV and `/dev/kmsg`. Python 3.11 or newer is required for TOML configuration.
 
-```sh
-make            # собирает build/kcov-remote
-make test
-python3 -m usb_device_lab validate examples/composite.json
-python3 -m usb_device_lab mutate examples/composite.json mutated.json --seed 123
-python3 -m usb_device_lab seed examples/composite.json --state state
+## Quick start
+
+```bash
+git clone https://github.com/nworkv/usb-device-lab
+cd usb-device-lab
+cp examples/lab.example.toml lab.toml
 ```
 
-Нужны Linux, Python >= 3.10, компилятор C и заголовки Linux UAPI. Сторонние Python-библиотеки не требуются.
+Edit `lab.toml` with the gadget UDC, the host IPv4/IPv6 address, SSH user and USB bus number. Paths are resolved relative to `lab.toml`.
 
-## Стенд
+```toml
+[gadget]
+udc = "your-udc-name"
+device_config = "examples/composite.json"
 
-- **Gadget-машина** запускает эмулятор и кампанию. Нужны `CONFIG_USB_RAW_GADGET`, свободный UDC и доступ к `/dev/raw-gadget`; `udc_driver` и `udc_device` в JSON должны совпадать с вашим UDC (`dummy_udc` в примере — виртуальный).
-- **Тестируемый хост** подключён USB-кабелем. Нужны `CONFIG_KCOV=y`, `CONFIG_KCOV_INSTRUMENT_ALL=y`, `CONFIG_DEBUG_FS=y`, собранный `build/kcov-remote` и права на `/sys/kernel/debug/kcov` и `/dev/kmsg`. Используйте отдельную шину: remote-покрытие охватывает всю шину.
-- Управление идёт по отдельному SSH-каналу с ключами и проверкой host key.
-
-```sh
-python3 -m usb_device_lab replay device.json      # один эмулятор, без покрытия; остановка Ctrl+C
-
-python3 -m usb_device_lab fuzz --seeds device.json --host usb-host \
-  --agent-command "sudo -n python3 -m usb_device_lab.host_agent --bus 1 --collector /opt/usb-device-lab/build/kcov-remote" \
-  --output state --iterations 1000 --seconds 5 --seed 123
-
-python3 -m usb_device_lab web --output state --port 8080    # http://127.0.0.1:8080
+[host]
+address = "192.168.1.20"
+ssh_user = "root"
+usb_bus = 1
 ```
 
-Для доступа с другого компьютера используйте SSH-туннель. Интерфейс без аутентификации и слушает только loopback.
+Run non-invasive checks before a hardware run:
 
-## Формат JSON
+```bash
+python -m usb_device_lab.doctor gadget --udc your-udc-name
+python -m usb_device_lab.doctor host --bus 1
+```
 
-- `descriptors` — байты ответов на GET_DESCRIPTOR (`type`, `index`, `wIndex`, `hex`). Они не исправляются и могут быть намеренно повреждены.
-- `runtime.configurations` — исполняемая топология, независимая от `descriptors`: configurations, interfaces, alternate settings и bulk/interrupt endpoint'ы (7-байтовый `descriptor_hex`, `payload_hex`, `read_length`, `interval_ms`).
-- `protocol` — `{"name":"script","rules":[...]}`. Правило: `event` (`control`/`in`/`out`), `state`, `address`, `match`, `prefix`, `capture`, `reply_hex`, `reply_var`, `echo`, `send`, `next_state`.
-- `wire_mutator` — `{"seed":N,"probability":P}`; детерминированные изменения исходящих ответов.
+Initialize the configured output directories:
 
-## Корпус и ошибки
+```bash
+python -c 'from usb_device_lab.lab import load, create_directories; create_directories(load("lab.toml"))'
+```
 
-Перед подключением устройства сохраняется `config.json` и метаданные запуска (родитель, мутации, seed). Конфигурация попадает в корпус, только если покрытие валидно, буфер не переполнен и есть новый PC в namespace `kernel release : boot ID : bus`. Ошибки сохраняются независимо от корпуса: kernel (`BUG`, `KASAN`, `UBSAN`, panic и др.), executor, потеря логов, насыщение KCOV, отсутствие покрытия, сбой агента. Пустое покрытие и сбой агента останавливают кампанию. Незавершённые запуски после рестарта получают `interrupted`; потеря SSH не считается доказательством kernel panic.
+For a direct gadget smoke test, use the supplied device description:
 
-## Ограничения
+```bash
+sudo python -m usb_device_lab.device examples/composite.json
+```
 
-- USB 2.0 full/high speed, bulk и interrupt endpoint'ы. Нет SuperSpeed, isochronous, хабов, streams и автоматической реализации классов (MSC, UVC, audio, сеть): их поведение нужно описать сценарием или плагином.
-- Доступные endpoint'ы и скорость определяются UDC. Ioctl-константы Raw Gadget проверены по заголовкам Linux; другие архитектуры и ABI могут потребовать правок.
-- Remote KCOV видит только аннотированные участки ядра.
-- Kernel log читается best-effort (до 2 MiB на запуск). При жёстком падении хоста последние сообщения могут потеряться; serial / netconsole / pstore не интегрированы.
-- Плагины протоколов — доверенный локальный код: `module:Class` должен быть перечислен в `USB_DEVICE_LAB_PLUGINS`.
-- Используйте только на собственном изолированном стенде.
+## Unified configuration
 
-## Источники
+`lab.toml` is the source of truth for a run. `gadget` selects the UDC and device description; `host` tells the runner where to collect host-side coverage and logs; `corpus` selects seed families and scheduling; `run` sets corpus, result and log destinations.
 
-- Raw Gadget: <https://docs.kernel.org/usb/raw-gadget.html>
-- KCOV: <https://docs.kernel.org/dev-tools/kcov.html>
+The corpus manifest declares HID, Audio, CDC, Mass Storage, MIDI, UVC, composite and boundary-case families. Keep hand-written compatible profiles in `corpus/seeds/`; store coverage-improving generated cases in `var/corpus/`; preserve minimized reproducers next to their result in `var/results/`.
+
+## Logs and findings
+
+The gadget executor emits JSON events for control transfers, endpoint traffic and protocol errors. Host-side KCOV and kernel messages belong to the same run directory as the input and outcome. Never rely on console output alone: retain the corresponding run directory when reporting a finding.
+
+## Safety
+
+Run only against hosts and USB controllers you own or are authorized to test. Start with a dedicated host, a short time limit and a small seed subset. Use the `doctor` commands after each kernel, cabling or UDC change.
