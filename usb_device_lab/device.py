@@ -12,6 +12,8 @@ from .raw_io import (CLEAR_HALT,CONFIGURE,DISABLE,ENABLE,EP0_READ,EP0_WRITE,FETC
                      SET_HALT,STALL,WRITE,RawIO)
 from .topology import active_endpoints,validate_topology
 
+JOIN_TIMEOUT=2
+
 def log(**data): print(json.dumps(data),flush=True)
 
 class Device:
@@ -21,14 +23,31 @@ class Device:
         self.lock=threading.RLock();self.value=0;self.settings={};self.eps={};self.workers=[];self.halted=set()
         self.descriptors={(x['type'],x.get('index',0),x.get('wIndex',0)):bytes.fromhex(x['hex']) for x in self.data['descriptors']}
     def disable(self):
-        for _,stop,t in self.workers:
+        """Stop endpoint workers without deadlocking.
+
+        Order matters: (1) ask every worker to stop and interrupt blocking syscalls,
+        (2) EP_DISABLE every endpoint so that Raw Gadget fails pending EP_READ/EP_WRITE
+        with ESHUTDOWN, (3) only then join the threads. Joining before EP_DISABLE can
+        hang forever on an endpoint the host never services.
+        """
+        workers,self.workers=self.workers,[]
+        for _,stop,t in workers:
             stop.set()
-            if t.is_alive() and self.interrupts: signal.pthread_kill(t.ident,signal.SIGUSR1)
-        for h,_,t in self.workers:
-            if t.ident is not None: t.join(timeout=2)
-            if t.is_alive(): raise RuntimeError('endpoint thread did not stop; restart executor')
-            self.io.scalar(DISABLE,h)
-        self.workers=[];self.eps={};self.halted.clear();self.value=0;self.settings={}
+            if t.is_alive() and self.interrupts:
+                try: signal.pthread_kill(t.ident,signal.SIGUSR1)
+                except (ProcessLookupError,OSError): pass
+        failures=[]
+        for handle,_,_ in workers:
+            try: self.io.scalar(DISABLE,handle)
+            except OSError as e:
+                if e.errno not in (errno.EINVAL,errno.EBUSY,errno.ESHUTDOWN,errno.ENODEV): failures.append(e)
+        stuck=[]
+        for handle,_,t in workers:
+            if t.ident is not None and t is not threading.current_thread(): t.join(timeout=JOIN_TIMEOUT)
+            if t.is_alive() and t is not threading.current_thread(): stuck.append(handle)
+        self.eps={};self.halted.clear();self.value=0;self.settings={}
+        if stuck: raise RuntimeError(f'endpoint threads {stuck} did not stop after EP_DISABLE; restart executor')
+        if failures: raise failures[0]
     def configure(self,value,settings=None):
         if value and value not in self.configs: raise ValueError('unknown configuration')
         selected=dict(settings) if settings is not None else ({i['number']:0 for i in self.configs[value]['interfaces']} if value else {})
@@ -103,6 +122,7 @@ class Device:
                     with self.lock: size=ep.get('read_length',self.protocol.read_size(address))
                     if type(size) is not int or not 1<=size<=16384: raise ValueError('invalid read size')
                     data=self.io.transfer(READ,length=size,handle=handle)
+                    if stop.is_set(): break
                     with self.lock: self.protocol.out(address,data)
                     log(kind='endpoint_out',address=address,hex=data.hex())
                 stop.wait(ep.get('interval_ms',10)/1000)
