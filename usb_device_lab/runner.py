@@ -16,6 +16,22 @@ from .storage import Store
 
 FATAL={'infrastructure','cleanup','coverage_unavailable'}
 
+
+def run_summary(ident, result, new_pcs):
+    """Keep legacy fields and expose the stored, unconfirmed triage verdict."""
+    verdict = result.get('verdict') or {}
+    return {
+        'run': ident,
+        'new_pcs': new_pcs,
+        'errors': len(result.get('errors', [])),
+        'outcome': verdict.get('outcome', 'inconclusive'),
+        'kernel_event_count': len(result.get('kernel_events', [])),
+        'confirmation': verdict.get('confirmation', 'unknown'),
+        'coverage_valid': bool(result.get('coverage_valid')),
+        'telemetry_complete': verdict.get('telemetry_complete', False),
+    }
+
+
 def terminate(process):
     if process is None or process.poll() is not None: return
     os.killpg(process.pid,signal.SIGTERM)
@@ -68,7 +84,7 @@ def campaign(seeds,output,agent_argv,iterations,seconds,seed,gadget_module='usb_
                 gadget=[sys.executable,'-u','-m',gadget_module,str(store.root/'runs'/ident/'config.json')]
                 result=execute(store.root/'runs'/ident,agent_argv,gadget,seconds)
                 result['iteration']=iteration;new=store.finish(ident,config,result)
-                outcomes.append({'run':ident,'new_pcs':new,'errors':len(result['errors'])});print(json.dumps(outcomes[-1]),flush=True)
+                outcomes.append(run_summary(ident,result,new));print(json.dumps(outcomes[-1]),flush=True)
                 if any(e['kind'] in FATAL for e in result['errors']): break
             return outcomes
         finally: store.close()
