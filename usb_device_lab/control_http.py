@@ -8,37 +8,7 @@ import signal
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-PAGE = b"""<!doctype html><html lang="ru"><meta charset="utf-8">
-<title>USB Device Lab control</title><h1>Campaign control</h1>
-<label>Token <input id="token" type="password" autocomplete="off"></label>
-<label>Iterations <input id="iterations" type="number" value="100" min="1"></label>
-<label>Seconds <input id="seconds" type="number" value="5" min="0.1" step="0.1"></label>
-<label>Seed <input id="seed" type="number" value="0" min="0"></label>
-<button id="start">Start</button><button id="stop">Stop</button>
-<button id="resume">Resume</button><button id="status">Status</button>
-<p>Stop finishes the current attempt. Resume starts a new session with the existing corpus.</p>
-<pre id="result"></pre><script src="/control.js"></script></html>
-"""
-SCRIPT = b"""'use strict';
-const el = id => document.getElementById(id);
-async function request(action) {
-  const status = action === 'status';
-  const options = {method: status ? 'GET' : 'POST',
-    headers: {'Authorization': 'Bearer ' + el('token').value}};
-  if (!status) {
-    options.headers['Content-Type'] = 'application/json';
-    options.body = JSON.stringify(action === 'start' ? {
-      iterations: Number(el('iterations').value), seconds: Number(el('seconds').value),
-      seed: Number(el('seed').value)} : {});
-  }
-  try {
-    const response = await fetch('/api/campaign/' + action, options);
-    el('result').textContent = JSON.stringify(await response.json(), null, 2);
-  } catch (error) { el('result').textContent = String(error); }
-}
-for (const action of ['start', 'stop', 'resume', 'status'])
-  el(action).addEventListener('click', () => request(action));
-"""
+from .panel_ui import PAGE, STYLE, SCRIPT
 
 
 def strict_object(pairs):
@@ -85,7 +55,7 @@ class ControlHandler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+        self.send_header('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
         self.end_headers()
         self.wfile.write(body)
 
@@ -109,11 +79,13 @@ class ControlHandler(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self):
-        public = self.path in ('/', '/control.js')
+        public = self.path in ('/', '/control.js', '/control.css')
         if not self.guard(authenticated=not public):
             return
         if self.path == '/':
             self.reply(200, PAGE, 'text/html; charset=utf-8')
+        elif self.path == '/control.css':
+            self.reply(200, STYLE, 'text/css; charset=utf-8')
         elif self.path == '/control.js':
             self.reply(200, SCRIPT, 'text/javascript; charset=utf-8')
         elif self.path == '/api/campaign/status':
