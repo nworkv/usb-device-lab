@@ -32,6 +32,24 @@ def run_summary(ident, result, new_pcs):
     }
 
 
+def apply_agent_reply(result, reply, namespace=None):
+    """Preserve diagnostics before rejecting an agent/collector failure."""
+    if not isinstance(reply, dict):
+        raise RuntimeError('invalid host agent reply')
+    errors = list(result.get('errors', []))
+    result.update({key: value for key, value in reply.items() if key != 'errors'})
+    result['errors'] = errors
+    if reply.get('error'):
+        result['coverage_valid'] = False
+        result['pcs'] = []
+        raise RuntimeError('host agent: ' + str(reply['error']))
+    if namespace is not None and reply.get('namespace') != namespace:
+        result['coverage_valid'] = False
+        result['pcs'] = []
+        raise RuntimeError('coverage namespace changed')
+    return reply
+
+
 def terminate(process):
     if process is None or process.poll() is not None: return
     os.killpg(process.pid,signal.SIGTERM)
@@ -44,18 +62,19 @@ def execute(directory,agent_argv,gadget_argv,seconds):
     with open(directory/'agent.log','w+') as agent_log,open(directory/'executor.log','w+') as gadget_log:
         try:
             agent=subprocess.Popen(agent_argv,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=agent_log,text=True,bufsize=1,start_new_session=True)
-            rpc=Lines(agent);hello=rpc.receive()
+            rpc=Lines(agent);hello=apply_agent_reply(result,rpc.receive())
             if not hello.get('ready'): raise RuntimeError('host agent not ready')
             rpc.send({'command':'start'})
-            if not rpc.receive().get('started'): raise RuntimeError('host coverage not started')
+            started=apply_agent_reply(result,rpc.receive())
+            if not started.get('started'): raise RuntimeError('host coverage not started')
             gadget=subprocess.Popen(gadget_argv,stdout=gadget_log,stderr=subprocess.STDOUT,start_new_session=True)
             deadline=time.monotonic()+seconds
             while gadget.poll() is None and time.monotonic()<deadline: time.sleep(0.05)
             result['window_completed']=gadget.poll() is None
             terminate(gadget);result['executor_returncode']=gadget.returncode
-            time.sleep(0.3);rpc.send({'command':'stop'});collected=rpc.receive(timeout=30)
-            if collected.get('namespace')!=hello.get('namespace'): raise RuntimeError('coverage namespace changed')
-            result.update(collected);agent.stdin.close();agent.wait(timeout=3)
+            time.sleep(0.3);rpc.send({'command':'stop'})
+            apply_agent_reply(result,rpc.receive(timeout=30),namespace=hello.get('namespace'))
+            agent.stdin.close();agent.wait(timeout=3)
         except Exception as e:
             result['coverage_valid']=False;result['errors'].append({'kind':'infrastructure','summary':str(e)})
         finally:
