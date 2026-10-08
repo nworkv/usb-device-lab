@@ -6,6 +6,7 @@ import os
 import tempfile
 from pathlib import Path
 from .control import CampaignSupervisor, run_session
+from .snapshot_schema import decode_snapshot
 
 
 class PersistentCampaignSupervisor(CampaignSupervisor):
@@ -30,23 +31,9 @@ class PersistentCampaignSupervisor(CampaignSupervisor):
     def _restore(self):
         with self._state_path.open('rb') as source:
             raw = source.read(65537)
-        if len(raw) > 65536:
-            raise ValueError('Supervisor snapshot is too large')
-        data = json.loads(raw)
-        if type(data) is not dict or data.get('version') != 1 or data.get('identity') != self._identity:
-            raise ValueError('Incompatible supervisor snapshot')
-        status, last = data.get('status'), data.get('parameters')
-        states = {'idle', 'starting', 'running', 'stopping', 'completed', 'stopped', 'failed', 'interrupted'}
-        if type(status) is not dict or status.get('state') not in states:
-            raise ValueError('Invalid supervisor state')
-        if type(status.get('runs')) is not int or status['runs'] < 0:
-            raise ValueError('Invalid run count')
-        if status.get('session') is not None and type(status['session']) is not str:
-            raise ValueError('Invalid session identifier')
-        if last is not None and (type(last) is not dict or set(last) != {'iterations', 'seconds', 'seed', 'families', 'profiles'}):
-            raise ValueError('Invalid saved campaign parameters')
-        self._status = {key: status[key] for key in ('state', 'session', 'runs', 'error', 'last_run') if key in status}
-        self._last = last
+        status, parameters = decode_snapshot(raw, self._identity)
+        self._status = status
+        self._last = parameters
         if self._status['state'] in {'starting', 'running', 'stopping'}:
             self._status['state'] = 'interrupted'
             self._status['error'] = 'Previous supervisor exited without a terminal snapshot; inspect the lab before resume'
@@ -56,6 +43,7 @@ class PersistentCampaignSupervisor(CampaignSupervisor):
         try:
             data = {'version': 1, 'identity': self._identity, 'status': self._status, 'parameters': self._last}
             encoded = json.dumps(data, ensure_ascii=False, allow_nan=False).encode('utf-8')
+            decode_snapshot(encoded, self._identity)
             if len(encoded) > 65536:
                 raise ValueError('Supervisor snapshot is too large')
             fd, temporary = tempfile.mkstemp(prefix='.supervisor-', dir=self._directory)
