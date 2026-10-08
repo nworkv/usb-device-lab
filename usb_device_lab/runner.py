@@ -50,12 +50,29 @@ def apply_agent_reply(result, reply, namespace=None):
     return reply
 
 
-def terminate(process):
-    if process is None or process.poll() is not None: return
-    os.killpg(process.pid,signal.SIGTERM)
-    try: process.wait(timeout=2)
-    except subprocess.TimeoutExpired:
-        os.killpg(process.pid,signal.SIGKILL);process.wait(timeout=2)
+def terminate(process, term_timeout=3, kill_timeout=8):
+    """Stop our start_new_session child; SIGKILL cannot unblock kernel D state."""
+    report = {'signals': [], 'forced': False, 'reaped': False}
+    if process is None:
+        return report
+    if process.poll() is not None:
+        process.wait(timeout=0)
+        report['reaped'] = True
+        return report
+    for signum, timeout in ((signal.SIGTERM, term_timeout), (signal.SIGKILL, kill_timeout)):
+        try:
+            os.killpg(process.pid, signum)
+            report['signals'].append(signal.Signals(signum).name)
+            report['forced'] = signum == signal.SIGKILL
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=timeout)
+            report['reaped'] = True
+            return report
+        except subprocess.TimeoutExpired:
+            if signum == signal.SIGKILL:
+                raise RuntimeError('child did not exit after SIGKILL; inspect process state and kernel log')
 
 def execute(directory,agent_argv,gadget_argv,seconds):
     directory=Path(directory);result={'coverage_valid':False,'pcs':[],'errors':[]};agent=gadget=None
@@ -71,7 +88,11 @@ def execute(directory,agent_argv,gadget_argv,seconds):
             deadline=time.monotonic()+seconds
             while gadget.poll() is None and time.monotonic()<deadline: time.sleep(0.05)
             result['window_completed']=gadget.poll() is None
-            terminate(gadget);result['executor_returncode']=gadget.returncode
+            try:
+                result['executor_stop']=terminate(gadget,term_timeout=8)
+            except Exception as e:
+                result['errors'].append({'kind':'cleanup','summary':str(e)})
+            result['executor_returncode']=gadget.returncode
             time.sleep(0.3);rpc.send({'command':'stop'})
             apply_agent_reply(result,rpc.receive(timeout=30),namespace=hello.get('namespace'))
             agent.stdin.close();agent.wait(timeout=3)
@@ -84,6 +105,8 @@ def execute(directory,agent_argv,gadget_argv,seconds):
             for f in (gadget_log,agent_log): f.flush();os.fsync(f.fileno())
             gadget_log.seek(0);result['executor_log']=gadget_log.read(2*1024*1024)
             agent_log.seek(0);result['agent_log']=agent_log.read(16384)
+    if any(e.get('kind') == 'cleanup' for e in result['errors']):
+        result['coverage_valid']=False;result['pcs']=[]
     return classify(result)
 
 def campaign(seeds,output,agent_argv,iterations,seconds,seed,gadget_module='usb_device_lab.device'):
