@@ -1,0 +1,62 @@
+name: Kernel triage integration
+
+on:
+  push:
+    branches:
+      - feature/kernel-triage
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-triage-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: Python ${{ matrix.python }} / collector and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12']
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Configure Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Record environment
+        run: |
+          git rev-parse HEAD
+          python --version
+          cc --version
+      - name: Compile Python sources
+        run: python -m compileall -q usb_device_lab tests
+      - name: Build remote KCOV collector
+        run: |
+          make all
+          test -x build/kcov-remote
+      - name: Run complete test suite
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -v 2>&1 | tee test-results.log
+      - name: Preserve test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: triage-tests-python-${{ matrix.python }}
+          path: test-results.log
+          if-no-files-found: ignore
+          retention-days: 14
