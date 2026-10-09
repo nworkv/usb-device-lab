@@ -8,8 +8,10 @@ from .event_control import EventControlHandler, EventControlServer, EventCampaig
 from .panel_ui import PAGE, STYLE
 from .web import run_view
 from .log_panel import LogRoutes
+from .corpus_browser import CorpusBrowser
+from .corpus_panel import CorpusRoutes
 
-NAV = '<nav class="actions" aria-label="Разделы"><a href="/">Управление</a><a href="/events">События</a><a href="/results">Результаты</a><a href="/logs">Логи</a></nav>'.encode('utf-8')
+NAV = '<nav class="actions" aria-label="Разделы"><a href="/">Управление</a><a href="/events">События</a><a href="/results">Результаты</a><a href="/logs">Логи</a><a href="/corpus">Корпус</a></nav>'.encode('utf-8')
 CONTROL_PAGE = PAGE.replace(b'<header>', NAV + b'<header>', 1)
 DASH_STYLE = STYLE + b'nav.actions{margin-bottom:24px}nav a{color:var(--accent);padding:8px 12px;border:1px solid var(--border);border-radius:10px;text-decoration:none}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}.table-wrap{overflow:auto}'
 DASH_SCRIPT = LIVE_SCRIPT.replace(b'Live events (1s polling)', 'События: обновление раз в секунду'.encode('utf-8')) + b"\nif(location.pathname === '/events') live.checked = true;\n"
@@ -68,7 +70,7 @@ def result_summaries(directory, offset=0):
         return summaries
 
 
-class DashboardHandler(LogRoutes, EventControlHandler):
+class DashboardHandler(CorpusRoutes, LogRoutes, EventControlHandler):
     def do_GET(self):
         assets = {'/': (CONTROL_PAGE, 'text/html'), '/events': (CONTROL_PAGE, 'text/html'),
                   '/results': (RESULTS_PAGE, 'text/html'), '/control.css': (DASH_STYLE, 'text/css'),
@@ -101,9 +103,10 @@ class DashboardHandler(LogRoutes, EventControlHandler):
 
 
 class DashboardServer(EventControlServer):
-    def __init__(self, supervisor, token, results_dir, port=8765):
+    def __init__(self, supervisor, token, results_dir, port=8765, config=None):
         super().__init__(supervisor, token, port)
         self.results_dir = Path(results_dir)
+        self.corpus_browser = CorpusBrowser(config) if config is not None else None
         self.RequestHandlerClass = DashboardHandler
 
 
@@ -113,7 +116,7 @@ def serve_dashboard(config, port=8765):
     import signal
     token = os.environ.get('USB_DEVICE_LAB_CONTROL_TOKEN') or secrets.token_urlsafe(32)
     with EventCampaignSupervisor(config) as supervisor:
-        server = DashboardServer(supervisor, token, config.results_dir, port)
+        server = DashboardServer(supervisor, token, config.results_dir, port, config=config)
         def interrupted(signum, frame):
             raise KeyboardInterrupt
         previous = signal.signal(signal.SIGTERM, interrupted)

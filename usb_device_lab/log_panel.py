@@ -5,7 +5,7 @@ from urllib.parse import parse_qs, urlsplit
 from .log_tail import list_logs, read_tail
 
 LOG_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>USB Device Lab — логи</title><link rel="stylesheet" href="/control.css"></head><body><main class="shell">
-<nav class="actions"><a href="/">Управление</a><a href="/events">События</a><a href="/results">Результаты</a><a href="/logs">Логи</a></nav>
+<nav class="actions"><a href="/">Управление</a><a href="/events">События</a><a href="/results">Результаты</a><a href="/logs">Логи</a><a href="/corpus">Корпус</a></nav>
 <header><h1>Логи запуска</h1><p class="subtitle">Только ограниченный хвост — не весь файл.</p></header>
 <section class="glass panel"><label for="log-token">Токен доступа</label><input id="log-token" type="password" autocomplete="off">
 <label for="log-run">Идентификатор запуска</label><input id="log-run" spellcheck="false" maxlength="32" placeholder="32 символа: 0–9, a–f">
