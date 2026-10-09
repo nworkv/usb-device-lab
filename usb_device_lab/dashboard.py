@@ -7,8 +7,9 @@ from urllib.parse import parse_qs, urlsplit
 from .event_control import EventControlHandler, EventControlServer, EventCampaignSupervisor, LIVE_SCRIPT
 from .panel_ui import PAGE, STYLE
 from .web import run_view
+from .log_panel import LogRoutes
 
-NAV = '<nav class="actions" aria-label="Разделы"><a href="/">Управление</a><a href="/events">События</a><a href="/results">Результаты</a></nav>'.encode('utf-8')
+NAV = '<nav class="actions" aria-label="Разделы"><a href="/">Управление</a><a href="/events">События</a><a href="/results">Результаты</a><a href="/logs">Логи</a></nav>'.encode('utf-8')
 CONTROL_PAGE = PAGE.replace(b'<header>', NAV + b'<header>', 1)
 DASH_STYLE = STYLE + b'nav.actions{margin-bottom:24px}nav a{color:var(--accent);padding:8px 12px;border:1px solid var(--border);border-radius:10px;text-decoration:none}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:12px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}.table-wrap{overflow:auto}'
 DASH_SCRIPT = LIVE_SCRIPT.replace(b'Live events (1s polling)', 'События: обновление раз в секунду'.encode('utf-8')) + b"\nif(location.pathname === '/events') live.checked = true;\n"
@@ -67,7 +68,7 @@ def result_summaries(directory, offset=0):
         return summaries
 
 
-class DashboardHandler(EventControlHandler):
+class DashboardHandler(LogRoutes, EventControlHandler):
     def do_GET(self):
         assets = {'/': (CONTROL_PAGE, 'text/html'), '/events': (CONTROL_PAGE, 'text/html'),
                   '/results': (RESULTS_PAGE, 'text/html'), '/control.css': (DASH_STYLE, 'text/css'),
