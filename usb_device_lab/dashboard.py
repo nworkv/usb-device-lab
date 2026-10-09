@@ -114,9 +114,10 @@ def serve_dashboard(config, port=8765):
     import os
     import secrets
     import signal
+    from .workspace import WorkspaceServer
     token = os.environ.get('USB_DEVICE_LAB_CONTROL_TOKEN') or secrets.token_urlsafe(32)
     with EventCampaignSupervisor(config) as supervisor:
-        server = DashboardServer(supervisor, token, config.results_dir, port, config=config)
+        server = WorkspaceServer(supervisor, token, config.results_dir, port, config=config)
         def interrupted(signum, frame):
             raise KeyboardInterrupt
         previous = signal.signal(signal.SIGTERM, interrupted)
