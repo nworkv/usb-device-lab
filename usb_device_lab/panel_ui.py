@@ -19,7 +19,7 @@ PAGE = """<!doctype html>
 <div class="actions"><button id="start" class="primary">Запустить</button><button id="stop" class="danger">Остановить</button>
 <button id="resume">Возобновить</button><button id="status">Обновить состояние</button></div>
 <label class="toggle"><input id="auto-status" type="checkbox" checked> Обновлять состояние каждые 2 секунды</label>
-<p class="hint">Остановка завершает текущую попытку. Возобновление создаёт новую сессию с прежними параметрами и корпусом, а не продолжает checkpoint PRNG.</p></section>
+<p class="hint">Остановка завершает текущую попытку. Возобновление продолжает совместимую кампанию с checkpoint; при несовместимости продолжение будет запрещено.</p></section>
 <section class="glass panel" aria-labelledby="response-title"><h2 id="response-title">Ответ supervisor</h2>
 <p id="notice" class="notice" role="status" aria-live="polite">Введите токен и обновите состояние.</p>
 <details><summary>Технические данные</summary><pre id="result">Данных пока нет.</pre></details>
