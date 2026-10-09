@@ -1,0 +1,43 @@
+# Этап 1: проверка формата. Приёмник и запуск UART-кампании ещё не подключены.
+# Пути ниже рассчитаны на размещение этого файла в examples/.
+[gadget]
+udc = "fe980000.usb"
+udc_driver = ""
+device_config = "../corpus/seeds/hid-keyboard.json"
+profile = "raspberry-pi-4"
+
+[telemetry]
+schema_version = 1
+mode = "uart"
+
+[uart]
+# Замените на путь вашего адаптера на Raspberry Pi.
+# Для стабильного имени предпочтителен /dev/serial/by-id/<имя_адаптера>.
+port = "/dev/ttyUSB0"
+baudrate = 115200
+data_bits = 8
+parity = "none"
+stop_bits = 1
+read_timeout = 0.25
+reconnect_delay = 1.0
+read_chunk_bytes = 4096
+
+[corpus]
+seed_dir = "../corpus/seeds"
+manifest = "../corpus/manifest.toml"
+families = ["hid"]
+profiles = ["hid/keyboard"]
+strategy = "round-robin"
+
+[campaign]
+iterations = 100
+seconds = 2
+seed = 42
+feedback = "none"
+pre_run_quiet_seconds = 0.5
+post_run_capture_seconds = 1.0
+
+[run]
+corpus_out = "../var/corpus-uart"
+results_dir = "../var/results-uart"
+logs_dir = "../var/logs-uart"
