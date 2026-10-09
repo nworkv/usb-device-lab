@@ -1,0 +1,36 @@
+name: Dashboard checkpoint integration
+
+'on':
+  push:
+    branches: [feature/kernel-triage]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Compile Python sources
+        run: python -m compileall -q usb_device_lab tests
+      - name: Build host collector
+        run: make
+      - name: Run real-core dashboard integration
+        run: python -m unittest discover -s tests -p 'test_dashboard_checkpoint_integration.py' -v
+      - name: Run complete repository suite
+        if: always()
+        run: python -m unittest discover -s tests -v
