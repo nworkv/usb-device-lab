@@ -16,6 +16,7 @@ from dataclasses import asdict
 from pathlib import Path
 from .uart_receiver import UARTReceiver
 from .uart_reports import AttemptWindow
+from . import uart_checkpoint as checkpoint
 
 
 def save(path, value):
@@ -44,7 +45,7 @@ def terminate(process, term_timeout=8, kill_timeout=8):
 
 
 def run_campaign(config, seeds, *, stop=None, receiver_factory=UARTReceiver,
-                 command_factory=None, lock_root=Path('/run/lock/usb-device-lab')):
+                 command_factory=None, lock_root=Path('/run/lock/usb-device-lab'), resume=None):
     from .model import DeviceConfig
     from .mutator import Mutator
     if config.telemetry_mode != 'uart' or config.feedback != 'none' or config.strategy != 'round-robin':
@@ -61,6 +62,14 @@ def run_campaign(config, seeds, *, stop=None, receiver_factory=UARTReceiver,
         data = DeviceConfig.load(path).data
         data['udc_device'], data['udc_driver'] = config.udc, config.gadget_udc_driver
         parents.append(DeviceConfig(data))
+    digest = checkpoint.fingerprint(config, parents)
+    restored = checkpoint.load(resume, digest, config.iterations) if resume else None
+    first = restored['next_iteration'] if restored else 0
+    if first == config.iterations:
+        raise ValueError('Checkpoint campaign is already complete')
+    mutator = Mutator(config.seed)
+    if restored:
+        mutator.random.setstate(restored['prng'])
     stop = stop if stop is not None else threading.Event()
     lock_root = Path(lock_root)
     lock_root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -87,7 +96,9 @@ def run_campaign(config, seeds, *, stop=None, receiver_factory=UARTReceiver,
         save(root / 'campaign.json', dict(schema_version=1, mode='uart', feedback='none',
             capture_id=ident, capture_directory=str(capture), boot_id=boot, seed=config.seed,
             explicit_seeds=[str(Path(p).resolve()) for p in seeds], iterations=config.iterations,
-            seconds=config.seconds, udc=config.udc, udc_driver=config.gadget_udc_driver))
+            seconds=config.seconds, udc=config.udc, udc_driver=config.gadget_udc_driver,
+            resumed_from=restored['source_capture'] if restored else None, first_iteration=first))
+        checkpoint.write(root / 'checkpoint.json', digest, first, mutator.random, ident)
         receiver = receiver_factory(config.uart, capture)
         def receive():
             try:
@@ -113,8 +124,7 @@ def run_campaign(config, seeds, *, stop=None, receiver_factory=UARTReceiver,
                 if stop.wait(min(0.02, max(0, deadline-time.monotonic()))):
                     return False
             return not stop.is_set()
-        mutator = Mutator(config.seed)
-        for iteration in range(config.iterations):
+        for iteration in range(first, config.iterations):
             if stop.is_set():
                 break
             healthy()
@@ -180,6 +190,14 @@ def run_campaign(config, seeds, *, stop=None, receiver_factory=UARTReceiver,
                 outcomes.append(result)
             if fatal:
                 raise RuntimeError(fatal)
+            if not stop.is_set():
+                healthy()
+                directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+                checkpoint.write(root / 'checkpoint.json', digest, iteration + 1, mutator.random, ident)
         return dict(campaign_id=ident, directory=str(root), outcomes=outcomes)
     finally:
         try:
@@ -200,11 +218,12 @@ def main(argv=None):
     p = argparse.ArgumentParser(description='UART campaign on Pi, no host agent; explicit preselected seeds')
     p.add_argument('--config', required=True)
     p.add_argument('--seeds', nargs='+', required=True, help='Explicit seed files, overriding manifest selection')
+    p.add_argument('--resume', help='Compatible UART checkpoint; creates a new capture session')
     a = p.parse_args(argv)
     stop = threading.Event()
     previous = {sig: signal.signal(sig, lambda *_: stop.set()) for sig in (signal.SIGINT, signal.SIGTERM)}
     try:
-        result = run_campaign(load(a.config), a.seeds, stop=stop)
+        result = run_campaign(load(a.config), a.seeds, stop=stop, resume=a.resume)
         print(json.dumps(result, ensure_ascii=False))
     finally:
         for sig, handler in previous.items():
