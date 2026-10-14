@@ -190,6 +190,14 @@ def run_campaign(config, seeds, *, stop=None, receiver_factory=UARTReceiver,
                 outcomes.append(result)
             if fatal:
                 raise RuntimeError(fatal)
+            if not stop.is_set():
+                healthy()
+                directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+                checkpoint.write(root / 'checkpoint.json', digest, iteration + 1, mutator.random, ident)
         return dict(campaign_id=ident, directory=str(root), outcomes=outcomes)
     finally:
         try:
