@@ -7,6 +7,7 @@ on:
       - 'usb_device_lab/**'
       - 'tests/test_uart*.py'
       - 'scripts/run_uart_tests.py'
+      - 'scripts/check_uart_checkpoint_source.py'
       - '.github/workflows/uart-integration.yml'
       - 'pyproject.toml'
   workflow_dispatch:
@@ -27,6 +28,11 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Prepare diagnostics directory
         run: mkdir -p uart-ci-results
+      - name: Check checkpoint source contract before execution
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/check_uart_checkpoint_source.py 2>&1 | tee uart-ci-results/source-contract.log
       - name: Install project
         shell: bash
         run: |
@@ -36,7 +42,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python -m compileall -q usb_device_lab tests scripts/run_uart_tests.py 2>&1 | tee uart-ci-results/compile.log
+          python -m compileall -q usb_device_lab tests scripts/run_uart_tests.py scripts/check_uart_checkpoint_source.py 2>&1 | tee uart-ci-results/compile.log
       - name: UART unit and integration tests
         shell: bash
         run: |
