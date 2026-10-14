@@ -1,11 +1,9 @@
 """Bounded offline UART analysis. Associations are observational, never causal."""
 import re
 from dataclasses import dataclass
-
 MAX_BYTES = 16 * 1024 * 1024
 MAX_CHUNKS = 100000
 HEADER = re.compile(rb'^(?:<\d+>)?(?:\[\s*[\d.]+\]\s*)?(BUG:|WARNING:|Oops:|Kernel panic|UBSAN:|KASAN:|KCSAN:)')
-
 @dataclass(frozen=True)
 class AttemptWindow:
     attempt_id: str
@@ -15,12 +13,10 @@ class AttemptWindow:
     active_start_ns: int
     active_end_ns: int
 
-
 def integer(value):
     if type(value) is not int or value < 0:
         raise ValueError('Expected nonnegative integer')
     return value
-
 
 def analyze(raw, chunks, windows, events=(), *, capture_id, context_lines=8, report_lines=256):
     if type(raw) is not bytes or len(raw) > MAX_BYTES:
@@ -98,7 +94,7 @@ def analyze(raw, chunks, windows, events=(), *, capture_id, context_lines=8, rep
             context=b''.join(v[2] for v in prefix).decode('utf-8', errors='backslashreplace'), text=text,
             connection_epoch=relevant[0]['connection_epoch'], termination=termination,
             associations=associations, association='ambiguous' if len(associations) > 1 else 'candidate' if associations else 'unassigned',
-            causal=False, completeness='unknown', truncated=termination != 'end_trace_marker')))
+            causal=False, completeness='unknown', truncated=termination != 'end_trace_marker'))
     points = sorted(boundaries)
     for a, b in zip(points, points[1:]):
         history, current, prefix = [], [], []
