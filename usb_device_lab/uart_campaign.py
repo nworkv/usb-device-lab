@@ -190,14 +190,6 @@ def run_campaign(config, seeds, *, stop=None, receiver_factory=UARTReceiver,
                 outcomes.append(result)
             if fatal:
                 raise RuntimeError(fatal)
-            if not stop.is_set():
-                healthy()
-                directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
-                try:
-                    os.fsync(directory_fd)
-                finally:
-                    os.close(directory_fd)
-                checkpoint.write(root / 'checkpoint.json', digest, iteration + 1, mutator.random, ident)
         return dict(campaign_id=ident, directory=str(root), outcomes=outcomes)
     finally:
         try:
@@ -215,7 +207,8 @@ def run_campaign(config, seeds, *, stop=None, receiver_factory=UARTReceiver,
 
 def main(argv=None):
     from .uart_config import load
-    p = argparse.ArgumentParser(description='UART campaign on Pi, no host agent; explicit preselected seeds')
+    from .uart_preflight import inspect
+    p = argparse.ArgumentParser(description='UART campaign on Pi; mandatory read-only CLI preflight')
     p.add_argument('--config', required=True)
     p.add_argument('--seeds', nargs='+', required=True, help='Explicit seed files, overriding manifest selection')
     p.add_argument('--resume', help='Compatible UART checkpoint; creates a new capture session')
@@ -223,7 +216,18 @@ def main(argv=None):
     stop = threading.Event()
     previous = {sig: signal.signal(sig, lambda *_: stop.set()) for sig in (signal.SIGINT, signal.SIGTERM)}
     try:
-        result = run_campaign(load(a.config), a.seeds, stop=stop, resume=a.resume)
+        try:
+            config = load(a.config)
+            preflight = inspect(config, a.seeds)
+        except (OSError, ValueError) as error:
+            p.exit(2, 'UART preflight error: ' + str(error) + '\n')
+        if preflight.get('metadata_checks_passed') is not True:
+            print(json.dumps(preflight, ensure_ascii=False, indent=2), file=sys.stderr)
+            p.exit(1, 'UART preflight failed; no campaign was started\n')
+        if stop.is_set():
+            return 130
+        print('UART metadata preflight passed; hardware readiness remains unknown', file=sys.stderr)
+        result = run_campaign(config, a.seeds, stop=stop, resume=a.resume)
         print(json.dumps(result, ensure_ascii=False))
     finally:
         for sig, handler in previous.items():

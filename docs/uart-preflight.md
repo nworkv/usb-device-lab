@@ -32,7 +32,26 @@ and parent paths are required. Device/sysfs symlinks are followed for metadata;
 lock-directory/file symlinks are rejected through lstat checks. The command never
 clears cleanup markers or starts/stops an existing campaign.
 
-Separate CLI only; this commit does not automatically gate campaign/web startup
-or change their behavior. Eight tests passed using real temporary directories,
-synthetic sysfs symlinks and /dev/null metadata, including explicit no-open/no-
-process/no-mkdir assertions. Full repository CI and physical UART/USB not tested.
+## Mandatory campaign CLI gate
+
+python -m usb_device_lab.uart_campaign now runs this check after TOML loading and
+before calling run_campaign, for both new campaigns and --resume. Failed metadata
+prints its JSON report to stderr and exits 1 without campaign creation/device
+opens. Loader/inspection errors exit 2. Cancellation during preflight returns 130
+without starting a campaign. Success prints a metadata-only warning to stderr;
+stdout retains the final campaign JSON. Signal handlers are restored on all paths.
+No skip flag is provided. Passing checks still does NOT verify physical readiness.
+
+This gate applies ONLY to the uart_campaign CLI main function. Direct Python
+run_campaign calls and the separate uart_web supervisor still bypass it; their
+behavior and PTY integration tests are unchanged. Do not assume web startup is
+preflight-protected. The check does not validate a resume snapshot; normal
+checkpoint validation still occurs inside run_campaign before hardware access.
+
+The prior eight metadata tests passed using real temporary directories, synthetic
+sysfs and /dev/null. Six new CLI-flow tests passed with injected loader/preflight
+and campaign callable, covering rejection, resume forwarding, errors, strict pass
+boolean and cancellation. They do not replace full-repository regression/CI or
+physical UART/USB acceptance, neither of which was run for this change.
+
+Run: python3 -m unittest discover -s tests -p 'test_uart_cli_preflight.py' -v
