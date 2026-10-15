@@ -9,6 +9,20 @@ from pathlib import Path
 from .uart_preflight import access, character, writable_ancestor
 
 
+def udc_driver_name(udc):
+    """Raw Gadget driver identifier, not the Linux device/driver basename."""
+    with (Path(udc) / 'uevent').open('rb') as stream:
+        raw = stream.read(4097)
+    if len(raw) > 4096:
+        raise ValueError('UDC uevent exceeds 4 KiB')
+    text = raw.decode('ascii')
+    names = [line.partition('=')[2] for line in text.splitlines()
+             if line.startswith('USB_UDC_NAME=')]
+    if len(names) != 1 or re.fullmatch(r'[A-Za-z0-9._@:-]{1,127}', names[0]) is None or names[0] in ('.', '..'):
+        raise ValueError('Missing, duplicate or invalid USB_UDC_NAME')
+    return names[0]
+
+
 def inspect(config, seeds, *, sys_root=Path('/sys'), raw_path=Path('/dev/raw-gadget'),
             lock_root=Path('/run/lock/usb-device-lab')):
     if config.telemetry_mode not in ('uart', 'ssh') or re.fullmatch(r'[A-Za-z0-9._@:-]{1,127}', config.udc) is None or config.udc in ('.', '..'):
@@ -22,14 +36,20 @@ def inspect(config, seeds, *, sys_root=Path('/sys'), raw_path=Path('/dev/raw-gad
     add('raw_gadget_character_node_accessible', character(raw_path, os.R_OK | os.W_OK), path=str(raw_path))
     udc = Path(sys_root) / 'class' / 'udc' / config.udc
     add('udc_directory_present', udc.is_dir(), path=str(udc))
-    actual = None
+    actual, linux_driver, identity_error = None, None, None
+    try:
+        actual = udc_driver_name(udc)
+    except (OSError, ValueError) as error:
+        identity_error = str(error)
     try:
         driver = udc / 'device' / 'driver'
         if driver.is_symlink():
-            actual = driver.resolve(strict=True).name
+            linux_driver = driver.resolve(strict=True).name
     except (OSError, RuntimeError):
         pass
-    add('udc_driver_matches', actual is not None and actual == config.gadget_udc_driver, observed=actual)
+    add('udc_driver_matches', actual is not None and actual == config.gadget_udc_driver,
+        configured=config.gadget_udc_driver, observed=actual, linux_driver=linux_driver,
+        source='USB_UDC_NAME', identity_error=identity_error)
     if config.telemetry_mode == 'uart':
         from .uart_receiver import check_settings
         check_settings(config.uart)

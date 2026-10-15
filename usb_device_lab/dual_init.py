@@ -2,8 +2,10 @@
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 from .dual_config import from_dict
+from .dual_preflight import udc_driver_name
 
 
 def main(argv=None):
@@ -12,7 +14,7 @@ def main(argv=None):
     p.add_argument('--config', default=str(Path.home() / '.config/usb-device-lab/lab.dual.toml'))
     p.add_argument('--state-dir', default=str(Path.home() / '.local/state/usb-device-lab'))
     p.add_argument('--mode', choices=('uart', 'ssh'), required=True)
-    p.add_argument('--udc'); p.add_argument('--driver')
+    p.add_argument('--udc'); p.add_argument('--driver', help='Raw Gadget USB_UDC_NAME, not the Linux driver basename')
     p.add_argument('--uart-port'); p.add_argument('--baud', type=int, default=115200)
     p.add_argument('--ssh-host'); p.add_argument('--ssh-user'); p.add_argument('--ssh-key'); p.add_argument('--known-hosts')
     p.add_argument('--ssh-direct', action='store_true', help='Read dmesg without sudo on host')
@@ -26,13 +28,14 @@ def main(argv=None):
     udc = args.udc or (udcs[0] if len(udcs) == 1 else None)
     if udc is None:
         p.exit(2, 'Specify --udc; cannot choose automatically\n')
+    if re.fullmatch(r'[A-Za-z0-9._@:-]{1,127}', udc) is None or udc in ('.', '..'):
+        p.exit(2, 'Invalid UDC instance name\n')
     driver = args.driver
     if driver is None:
-        path = Path('/sys/class/udc') / udc / 'device/driver'
         try:
-            driver = path.resolve(strict=True).name
-        except OSError:
-            p.exit(2, 'Cannot read UDC driver; inspect sysfs and specify --driver\n')
+            driver = udc_driver_name(Path('/sys/class/udc') / udc)
+        except (OSError, ValueError) as error:
+            p.exit(2, 'Cannot read USB_UDC_NAME; inspect uevent or specify --driver: ' + str(error) + '\n')
     raw = dict(gadget=dict(udc=udc, udc_driver=driver, device_config=str(repo / 'corpus/seeds/hid-keyboard.json'), profile='raspberry-pi-4'),
         telemetry=dict(schema_version=1, mode=args.mode),
         corpus=dict(seed_dir=str(repo / 'corpus/seeds'), manifest=str(repo / 'corpus/manifest.toml'), families=['hid'], profiles=['hid/keyboard'], strategy='round-robin'),

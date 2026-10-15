@@ -1,7 +1,8 @@
 # Replace UDC/driver, absolute paths, username, keys and UART settings.
 [gadget]
 udc = "fe980000.usb"
-udc_driver = "dwc2"
+udc_driver = "fe980000.usb"
+# udc_driver is USB_UDC_NAME from /sys/class/udc/<udc>/uevent, NOT device/driver.
 device_config = "/CHANGE_ME/usb-device-lab/corpus/seeds/hid-keyboard.json"
 profile = "raspberry-pi-4"
 [telemetry]
