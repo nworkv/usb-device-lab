@@ -1,29 +1,21 @@
-"""Preflight-protected launcher reusing uart_web without rewriting that module."""
-import argparse
+"""Compatibility adapter; CLI now delegates to the complete pipeline operator panel."""
 import copy
-import os
-import secrets
-import signal
 import threading
-
 
 class GuardedSupervisor:
     def __init__(self, supervisor, checker=None):
         self.base, self.checker, self.last_preflight = supervisor, checker, None
         self.lock, self.cancel = threading.RLock(), threading.Event()
         self.checking, self.closing = False, False
-
     @property
     def config(self):
         return self.base.config
-
     def status(self):
         with self.lock:
             report, checking = copy.deepcopy(self.last_preflight), self.checking
         result = self.base.status()
         result.update(preflight=report, preflight_pending=checking, preflight_gate='guarded_web_launcher')
         return result
-
     def start(self, campaign=None):
         from .uart_preflight import inspect
         checker = self.checker if self.checker is not None else inspect
@@ -57,41 +49,17 @@ class GuardedSupervisor:
         finally:
             with self.lock:
                 self.checking = False
-
     def stop(self):
         self.cancel.set()
         self.base.stop()
-
     def close(self):
         self.cancel.set()
         with self.lock:
             self.closing = True
         self.base.close()
 
-
 def main(argv=None):
-    from .uart_config import load
-    from .uart_web import Supervisor
-    from .uart_review_http import Server
-    parser = argparse.ArgumentParser(description='UART web launcher with mandatory metadata preflight')
-    parser.add_argument('--config', required=True)
-    parser.add_argument('--seeds', nargs='+', required=True)
-    parser.add_argument('--port', type=int, default=8766)
-    args = parser.parse_args(argv)
-    supervisor = GuardedSupervisor(Supervisor(load(args.config), args.seeds))
-    token = os.environ.get('USB_DEVICE_LAB_UART_TOKEN') or secrets.token_urlsafe(32)
-    server = Server(supervisor, token, args.port)
-    previous = signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
-    print('Guarded UART panel http://127.0.0.1:%d / token: %s' % (server.server_port, token), flush=True)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        signal.signal(signal.SIGTERM, previous)
-        server.server_close()
-        supervisor.close()
-    return 0
+    from .uart_pipeline_web import main as serve
+    return serve(argv)
 
-if __name__ == '__main__':
-    raise SystemExit(main())
+if __name__=='__main__':raise SystemExit(main())
