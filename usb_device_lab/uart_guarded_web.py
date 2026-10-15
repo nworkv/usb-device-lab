@@ -71,7 +71,8 @@ class GuardedSupervisor:
 
 def main(argv=None):
     from .uart_config import load
-    from .uart_web import Server, Supervisor
+    from .uart_web import Supervisor
+    from .uart_review_http import Server
     parser = argparse.ArgumentParser(description='UART web launcher with mandatory metadata preflight')
     parser.add_argument('--config', required=True)
     parser.add_argument('--seeds', nargs='+', required=True)
