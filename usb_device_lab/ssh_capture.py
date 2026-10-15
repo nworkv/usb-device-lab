@@ -1,4 +1,4 @@
-"""Agentless SSH kernel-log capture with bounded local/remote process lifetime."""
+"""Agentless SSH kernel-log capture with optional remote lifetime and bounded local cleanup."""
 from dataclasses import asdict
 import os
 import select
@@ -81,7 +81,8 @@ class SSHReceiver:
         self.process_factory = process_factory or subprocess.Popen
         self.stop_event, self.lock = threading.Event(), threading.RLock()
         self._status = dict(state='new', transport='ssh', connection_epoch=0, bytes_received=0,
-                            reconnects=0, completeness='unknown', error=None)
+                            reconnects=0, completeness='unknown', error=None, lifetime_seconds=settings.lease_seconds,
+                            returncode=None, failure_kind=None)
 
     def status(self):
         with self.lock:
@@ -104,7 +105,7 @@ class SSHReceiver:
         try:
             journal = CaptureJournal(self.directory)
             journal.event('started', 0, transport='ssh', host=self.settings.host,
-                          source='dmesg --follow-new --raw', completeness='unknown')
+                          source='dmesg --follow-new --raw', completeness='unknown', lifetime_seconds=self.settings.lease_seconds)
             process = self.process_factory(command(self.settings), stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, bufsize=0)
             streams = {process.stdout.fileno(): 'stdout', process.stderr.fileno(): 'stderr'}
@@ -141,7 +142,11 @@ class SSHReceiver:
                 if process.poll() is not None:
                     if self.stop_event.is_set():
                         break
-                    raise RuntimeError('SSH stream ended, returncode=' + str(process.returncode))
+                    rc = process.returncode
+                    expired = rc == 124 and self.settings.lease_seconds > 0
+                    self.update(returncode=rc, failure_kind='lifetime_expired' if expired else 'remote_stream_exit')
+                    reason = ('SSH capture lifetime expired after %s seconds; set ssh.lease_seconds=0 for no lifetime limit' % self.settings.lease_seconds) if expired else 'SSH stream ended unexpectedly'
+                    raise RuntimeError(reason + ', returncode=' + str(rc))
                 if not streams:
                     raise RuntimeError('SSH streams closed unexpectedly')
             journal.event('stopped', 1 if ready else 0, transport='ssh', completeness='unknown')

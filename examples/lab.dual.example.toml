@@ -27,7 +27,7 @@ use_sudo = true
 connect_timeout = 5
 read_timeout = 0.1
 read_chunk_bytes = 4096
-lease_seconds = 600
+lease_seconds = 0 # No overall SSH capture lifetime limit; stop remains available.
 [corpus]
 seed_dir = "/CHANGE_ME/usb-device-lab/corpus/seeds"
 manifest = "/CHANGE_ME/usb-device-lab/corpus/manifest.toml"

@@ -59,7 +59,7 @@ class SSHCaptureTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
-        self.settings=SSHSettings(host='10.10.10.208',user='operator',identity_file='/tmp/key',known_hosts_file='/tmp/known_hosts')
+        self.settings=SSHSettings(host='10.10.10.208',user='operator',identity_file='/tmp/key',known_hosts_file='/tmp/known_hosts',lease_seconds=600)
 
     def factory(self,code):
         def create(argv,**kwargs):

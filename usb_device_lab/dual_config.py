@@ -18,7 +18,7 @@ class SSHSettings:
     connect_timeout: int = 5
     read_timeout: float = 0.1
     read_chunk_bytes: int = 4096
-    lease_seconds: int = 600
+    lease_seconds: int = 0
 
 @dataclass(frozen=True)
 class LabConfig(UARTLabConfig):
@@ -52,10 +52,13 @@ def ssh_settings(raw):
             raise ValueError(key + ': SSH path expansion/traversal is not supported')
     for key, low, high, default in (
         ('port', 1, 65535, 22), ('connect_timeout', 1, 8, 5),
-        ('read_chunk_bytes', 64, 65536, 4096), ('lease_seconds', 30, 3600, 600)):
+        ('read_chunk_bytes', 64, 65536, 4096)):
         value = raw.get(key, default)
         if type(value) is not int or not low <= value <= high:
             raise ValueError('Invalid ssh.' + key)
+    lease = raw.get('lease_seconds', 0)
+    if type(lease) is not int or lease != 0 and not 30 <= lease <= 3600:
+        raise ValueError('ssh.lease_seconds: 0 disables lifetime; otherwise use 30..3600 seconds')
     timeout = raw.get('read_timeout', 0.1)
     if type(timeout) not in (int, float) or not 0.05 <= timeout <= 1:
         raise ValueError('Invalid ssh.read_timeout')

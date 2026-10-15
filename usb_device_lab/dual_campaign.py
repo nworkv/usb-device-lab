@@ -16,6 +16,7 @@ from pathlib import Path
 from .uart_campaign import save, terminate
 from .uart_reports import AttemptWindow
 from . import uart_checkpoint as checkpoint
+from .ssh_lifetime import restore as restore_checkpoint
 
 
 def receiver_for(config, directory):
@@ -58,7 +59,7 @@ def run_campaign(config, seeds, *, stop=None, receiver_factory=None, command_fac
         data['udc_device'], data['udc_driver'] = config.udc, config.gadget_udc_driver
         parents.append(DeviceConfig(data))
     digest = fingerprint(config, parents)
-    restored = checkpoint.load(resume, digest, config.iterations) if resume else None
+    restored = restore_checkpoint(resume, config, parents, fingerprint) if resume else None
     first = restored['next_iteration'] if restored else 0
     if first == config.iterations:
         raise ValueError('Checkpoint campaign is already complete')
@@ -94,7 +95,9 @@ def run_campaign(config, seeds, *, stop=None, receiver_factory=None, command_fac
             seed=config.seed, explicit_seeds=[str(Path(p).resolve()) for p in seeds],
             iterations=config.iterations, seconds=config.seconds, udc=config.udc,
             udc_driver=config.gadget_udc_driver, resumed_from=restored['source_capture'] if restored else None,
-            first_iteration=first, causal=False, coverage_valid=False))
+            first_iteration=first, causal=False, coverage_valid=False,
+            transport_lifetime_seconds=config.ssh.lease_seconds if config.telemetry_mode == 'ssh' else 0,
+            ssh_lifetime_migrated_from=restored.get('ssh_lifetime_migrated_from') if restored else None))
         checkpoint.write(root / 'checkpoint.json', digest, first, mutator.random, ident)
         receiver = factory(config.capture_settings, capture)
         def receive():

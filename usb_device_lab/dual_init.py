@@ -18,7 +18,7 @@ def main(argv=None):
     p.add_argument('--uart-port'); p.add_argument('--baud', type=int, default=115200)
     p.add_argument('--ssh-host'); p.add_argument('--ssh-user'); p.add_argument('--ssh-key'); p.add_argument('--known-hosts')
     p.add_argument('--ssh-direct', action='store_true', help='Read dmesg without sudo on host')
-    p.add_argument('--lease-seconds', type=int, default=600)
+    p.add_argument('--lease-seconds', type=int, default=0, help='0: no capture lifetime limit')
     p.add_argument('--iterations', type=int, default=3)
     args = p.parse_args(argv)
     repo, state, config = map(lambda x: Path(x).expanduser().resolve(), (args.repo_dir, args.state_dir, args.config))
