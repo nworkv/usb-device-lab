@@ -33,11 +33,15 @@ cd "$REPO"
 "$PY" scripts/check_uart_checkpoint_source.py
 mkdir -p "$HOME/.local/state/usb-device-lab/setup-logs"
 "$PY" scripts/run_uart_tests.py --output "$HOME/.local/state/usb-device-lab/setup-logs/dual-uart-regression-$$.json"
-"$PY" -m unittest discover -s tests -p 'test_dual_*.py' -v
+"$PY" -m unittest discover -s tests -p 'test_*.py' -v
 "$PY" - <<'PY'
 import subprocess
-from usb_device_lab.dual_ui import SCRIPT
-subprocess.run(['node', '--check'], input=SCRIPT, check=True)
+from usb_device_lab.dual_ui import SCRIPT as legacy
+from usb_device_lab.research_ui import SCRIPT as research
+from usb_device_lab.event_ui import SCRIPT as events
+from usb_device_lab.skip_console import SKIP_SCRIPT as controls
+for script in (legacy, research, events, controls, research + events + controls):
+    subprocess.run(['node', '--check'], input=script, check=True)
 PY
 if [[ -e "$CONFIG" || -L "$CONFIG" ]]; then
   echo 'Existing configuration preserved; generation arguments are ignored.'
@@ -48,4 +52,5 @@ sudo -- "$PY" -m usb_device_lab.dual_cli --config "$CONFIG" check
 if ((SERVE)); then
   exec sudo -- "$PY" -m usb_device_lab.dual_cli --config "$CONFIG" serve --port 8766
 fi
-printf 'Panel command: sudo -- %q -m usb_device_lab.dual_cli --config %q serve --port 8766\n' "$PY" "$CONFIG"
+printf 'Panel command: sudo -- %q -m usb_device_lab.dual_cli --config %q serve --port 8766' "$PY" "$CONFIG"
+echo

@@ -5,11 +5,32 @@ permissions:
 jobs:
   unit:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - run: make
-      - run: make test
+      - name: Compile Python sources
+        run: python -m compileall -q usb_device_lab tests scripts
+      - name: Check every served script and their shared global scope
+        run: |
+          python - <<'PY'
+          import subprocess
+          from usb_device_lab.dual_ui import SCRIPT as legacy
+          from usb_device_lab.research_ui import SCRIPT as research
+          from usb_device_lab.event_ui import SCRIPT as events
+          from usb_device_lab.skip_console import SKIP_SCRIPT as controls
+          for script in (legacy, research, events, controls, research + events + controls):
+              subprocess.run(['node', '--check'], input=script, check=True)
+          PY
+      - name: All unit and software integration tests
+        run: make test
