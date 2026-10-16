@@ -44,13 +44,14 @@ class WireMutator:
         if not 0<=self.probability<=1: raise ValueError('invalid probability')
     def apply(self,channel,payload,maximum=65535):
         if payload is None: return None
-        data=bytearray(payload)
-        if len(data)>maximum: raise ValueError('response too large')
+        if len(payload)>maximum: raise ValueError('response too large')
         if channel not in self.streams: self.streams[channel]=random.Random(self.seed^zlib.crc32(channel.encode()))
         rng=self.streams[channel]
         if rng.random()<self.probability:
+            data=bytearray(payload)
             op=rng.randrange(3); p=rng.randrange(len(data)) if data else 0
             if op==0 and data: data[p]^=1<<rng.randrange(8)
             elif op==1 and data: del data[p]
             elif len(data)<maximum: data[p:p]=bytes([rng.randrange(256)])
-        return bytes(data)
+            return bytes(data)
+        return bytes(payload)
