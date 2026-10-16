@@ -1,64 +1,72 @@
 # USB speed modes
 
-The normal device model and campaign executor accept Linux speed enum values
-1 (Low Speed), 2 (Full Speed, the default), and 3 (High Speed). The normal
-allowlist is usb_device_lab.usb_speeds.SUPPORTED_MODEL_SPEEDS. Values 5 and 6
-remain rejected by normal DeviceConfig and normal campaigns. A separate opt-in
-experimental speed=5 EP0 executor is described below; this is not general USB
-3.x device or data-endpoint support.
+Normal DeviceConfig and campaigns accept Linux speed enum values 1 (Low Speed),
+2 (Full Speed, the default), and 3 (High Speed). The normal allowlist is
+usb_device_lab.usb_speeds.SUPPORTED_MODEL_SPEEDS. Normal campaigns still reject
+5 and 6. Experimental speed=5 EP0 execution is separate, not general USB 3.x
+data-endpoint support.
 
-For speed=1 executable runtime endpoints must be interrupt endpoints, with
-packet sizes 1..8 bytes and bInterval 10..255. EP0 is not listed among runtime
-endpoints. Full/High Speed runtime validation rules are unchanged. Descriptor
-payloads remain fuzzable; topology validation is not USB class conformance.
+## Normal runtime and mutation engine v3
 
-## UDC diagnostics and normal executor guard
+Low Speed runtime endpoints must be interrupt endpoints with packet sizes
+1..8 bytes and bInterval 10..255. EP0 is not a runtime endpoint.
 
-Dual preflight reads maximum_speed and current_speed from the selected UDC,
-bounded to 128 bytes per attribute. Missing or unrecognized values stay unknown.
-The reported maximum is a ceiling, not proof of every lower-speed mode. The
-current value is a port snapshot, not an observation attributed to a campaign.
+Engine usb-tree-model-valid-v3 can select Low Speed when all executable runtime
+endpoints are interrupt endpoints (including control-only configurations). It
+does not convert bulk endpoints into interrupt endpoints. A transition to Low
+Speed caps runtime packet sizes at 8 and raises bInterval to at least 10.
+Dependent descriptor changes are included in the mutation trace. Low Speed
+runtime endpoint edits retain interrupt type and Low Speed packet/interval bounds.
+Full/High Speed bulk packet-size adjustment remains in place.
 
-The normal Device.run rejects a requested speed above a known maximum before
-opening its default RawIO and issuing INIT/RUN. It checks mutated children
-because each child runs through the executor. Unknown maxima do not block the
-normal executor by this guard alone. The requested speed is never rewritten.
-The usb_speed_precheck log is not hardware acceptance or proof of link speed.
+Advertised descriptor bytes are not automatically made class-conformant or
+consistent with the executable topology. They remain fuzzable bytes. Neither
+model validation nor speed mutation proves UDC compatibility or enumeration.
+The bundled seed generator still has no dedicated Low Speed baseline profiles.
+The standard mutator does not generate experimental SuperSpeed configurations.
 
-## Experimental SuperSpeed control-only path
+The mutation PRNG sequence changed. UART/SSH checkpoint version is now
+usb-tree-model-valid-v3-round-robin: checkpoints from v2 are rejected rather
+than silently continued with a different algorithm. Start a new campaign, or
+replay a saved configuration. WireMutator's byte-mutation algorithm is unchanged.
 
-Use only on an isolated stand with a SuperSpeed device-capable UDC and a kernel
-Raw Gadget implementation accepting USB_SPEED_SUPER in INIT. Hardware operation
-and successful enumeration have not been demonstrated by the mock unit tests.
+## UDC diagnostics and executor guard
+
+Preflight reads maximum_speed and current_speed from the chosen UDC, bounded
+to 128 bytes per attribute. Unknown values stay unknown. A reported maximum
+is not proof of every lower-speed mode; current_speed is a port snapshot, not
+a campaign-attributed measurement.
+
+Normal Device.run rejects speeds above a known UDC maximum before INIT/RUN,
+including mutated children. Missing maxima do not block by this guard alone.
+No speed fallback or descriptor rewriting occurs. usb_speed_precheck logs are
+not hardware acceptance. Protocol resources and owned I/O are closed on exit.
+
+## Experimental SuperSpeed EP0 executor
 
 ```sh
 python -m usb_device_lab.superspeed_control --config examples/superspeed-control-only.json
 ```
 
-The example contains dummy controller names. Set udc_driver and udc_device to
-the actual Raw Gadget driver identifier and UDC instance before running it.
-It sets speed=5 and runtime.experimental_superspeed_control_only=true. The
-experimental ControlConfig requires a BOS descriptor selector and forbids every
-non-control runtime endpoint. Common storage/protocol validation is reused
-through a speed=3 projection; the original speed=5 data is preserved for execution.
-Descriptor bytes are not certified for class compliance.
+Use an isolated stand. Replace the example's dummy controller bindings with
+the actual Raw Gadget driver identifier and UDC instance. The kernel must accept
+USB_SPEED_SUPER in INIT. Hardware operation and enumeration remain unverified.
 
-The separate executor sends speed byte 5 to INIT, reuses existing EP0 handling
-and WireMutator, and requires a known SuperSpeed-or-higher maximum before opening
-RawIO. Before each userspace control response it requires current_speed to report
-exactly super-speed. Unknown, downgraded and super-speed-plus values abort without
-that response or automatic fallback. Sysfs checks are snapshots, not an atomic
-measurement of physical transactions; some UDCs may not expose sufficient data
-and will therefore be rejected. UDC/kernel incompatibility can also make INIT
-or RUN fail. Logs retain hardware_acceptance=false.
+ControlConfig requires speed=5, the explicit boolean
+runtime.experimental_superspeed_control_only=true, a BOS descriptor selector,
+and no runtime data endpoints. It reuses common validation through a speed=3
+projection while preserving the original speed=5 execution data.
 
-This path does not enable companion-descriptor endpoint activation, bulk or
+The separate executor sends 5 to INIT and reuses EP0 handling and WireMutator.
+It requires a known SuperSpeed-or-higher maximum before opening RawIO, then
+requires current_speed to report exactly super-speed before each userspace
+control response. Unknown, downgraded, and super-speed-plus values abort without
+that response. Sysfs checks are snapshots, not atomic physical measurements.
+Kernel/UDC incompatibility can still make INIT/RUN fail. Logs keep
+hardware_acceptance=false; there is no automatic fallback.
+
+This path does not implement companion-descriptor endpoint activation, bulk or
 interrupt data traffic, isochronous streaming, streams, SuperSpeedPlus, USB 3.2
-lane modes, or standard campaign/corpus/UI integration. The example is a minimal
-control-only vendor-interface baseline, not a complete HID/storage/audio device.
-The wire-mutator seed/probability controls mutation of EP0 response bytes.
-
-The bundled normal seed generator and speed-mutation operator still do not
-produce Low Speed or experimental SuperSpeed entries automatically. A bcdUSB
-value is not proof of link speed; existing attempt cards display the requested
-configuration speed. Protocol resources and owned I/O are closed on executor exit.
+lane modes, or integration with standard campaigns/corpus/UI. The example is
+a control-only vendor-interface baseline, not a complete device class.
+A bcdUSB value is not proof of link speed; attempt cards show requested speed.

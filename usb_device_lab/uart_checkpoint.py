@@ -10,7 +10,7 @@ import sys
 import uuid
 from pathlib import Path
 
-VERSION = 'usb-tree-model-valid-v2-round-robin'
+VERSION = 'usb-tree-model-valid-v3-round-robin'
 
 
 def fingerprint(config, parents):
@@ -70,7 +70,7 @@ def write(path, digest, next_iteration, rng, capture):
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
         with os.fdopen(fd, 'w', encoding='utf-8') as stream:
             json.dump(data, stream, allow_nan=False)
-            stream.write('\n')
+            stream.write(chr(10))
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)

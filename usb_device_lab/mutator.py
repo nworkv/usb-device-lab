@@ -5,7 +5,7 @@ from .model import DeviceConfig
 from .mutation_graph import targets,edit,path_name,digest
 
 class Mutator:
-    VERSION='usb-tree-model-valid-v2'
+    VERSION='usb-tree-model-valid-v3'
     def __init__(self,seed=0):self.random=random.Random(seed)
     def catalogue(self,parent):
         return dict(version=self.VERSION,targets=[dict(path=path_name(p),kind=k) for p,k in targets(parent.data)],
