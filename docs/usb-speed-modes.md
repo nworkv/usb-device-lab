@@ -22,7 +22,7 @@ Full/High Speed bulk packet-size adjustment remains in place.
 Advertised descriptor bytes are not automatically made class-conformant or
 consistent with the executable topology. They remain fuzzable bytes. Neither
 model validation nor speed mutation proves UDC compatibility or enumeration.
-The bundled seed generator still has no dedicated Low Speed baseline profiles.
+The bundled seed generator writes dedicated Low Speed baseline profiles (`hid-low-speed` family: keyboard, mouse, consumer-control, gamepad, multi-report). Those profiles carry `bMaxPacketSize0 = 8`, interrupt-only runtime endpoints with MPS <= 8 and poll interval >= 10 ms, so they pass the topology checks and can be selected for campaigns whose chosen UDC accepts Low Speed device plugs. Mutated descendants of Full Speed interrupt-only seeds can also transition to Low Speed through the mutator's speed field. The executor passes the configured speed to the Raw Gadget INIT ioctl and its precheck rejects requests above the UDC's reported maximum speed ceiling, but UDC speed metadata alone does not prove that enumeration at the requested Low Speed actually succeeded on hardware.
 The standard mutator does not generate experimental SuperSpeed configurations.
 
 The mutation PRNG sequence changed. UART/SSH checkpoint version is now

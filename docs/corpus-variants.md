@@ -8,8 +8,8 @@ python -m usb_device_lab.corpus_variants --output var/corpus-50 --count 50 --see
 
 `--count` includes the original model: 1 original + 49 distinct variants by default.
 The source profiles come from `corpus/manifest.toml`; the tool does not invent
-additional device classes. With 19 input profiles, a successful build contains
-950 configurations, not 950 different hardware device types.
+additional device classes. With 24 input profiles, a successful build contains
+1200 configurations, not 1200 different hardware device types.
 
 Distinctness is calculated from `speed`, `descriptors`, `runtime`, and `protocol`.
 Changes to metadata or the wire-mutator seed alone do not count as new models.
@@ -32,7 +32,7 @@ In the lab configuration, set `corpus.seed_dir` to the absolute path of the new
 Each original profile becomes a selectable family, for example `hid-keyboard`;
 its generated profiles are `v0000` through `v0049`. Select this family to run
 its 50 models. Set campaign.iterations to at least 50 to visit all 50 seeds.
-The existing campaign limit remains 128 selected seeds: do not select all 950
+The existing campaign limit remains 128 selected seeds: do not select all 1200
 in one campaign. Select one device group at a time, or a compatible subset.
 
 This commit adds the builder CLI, not web controls, skip controls, a larger

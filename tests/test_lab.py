@@ -112,7 +112,7 @@ class CliTests(unittest.TestCase):
         r=self.cli('init','--host','not-an-ip','--udc','x','--output',str(self.dir/'l.toml'));self.assertEqual(r.returncode,2)
     def test_check_local_only_reports_not_ready_without_hardware(self):
         r=self.cli('check','--config',str(write_lab(self.dir)),'--local-only')
-        self.assertIn('corpus: 19 seeds',r.stdout);self.assertIn(r.returncode,(0,1))
+        self.assertIn('corpus: 24 seeds',r.stdout);self.assertIn(r.returncode,(0,1))
     def test_fuzz_wires_lab_toml_to_campaign(self):
         c=write_lab(self.dir);seen={}
         class Orchestrator:
@@ -125,7 +125,7 @@ class CliTests(unittest.TestCase):
             seen.update(seeds=seeds,output=output,agent=agent,iterations=iterations,seconds=seconds,seed=seed);return [{'new_pcs':1,'errors':0}]
         args=lab.build_parser().parse_args(['fuzz','--config',str(c),'--iterations','4','--skip-checks'])
         with redirect_stdout(io.StringIO()): self.assertEqual(lab.cmd_fuzz(args,campaign,Orchestrator),0)
-        self.assertEqual(Orchestrator.entered,11);self.assertEqual(seen['iterations'],4);self.assertEqual(len(seen['seeds']),19)
+        self.assertEqual(Orchestrator.entered,11);self.assertEqual(seen['iterations'],4);self.assertEqual(len(seen['seeds']),24)
         self.assertEqual(seen['output'],str(lab.load(c).results_dir));self.assertIn('tester@192.168.1.20',seen['agent'])
         self.assertTrue(all(json.loads(Path(s).read_text())['udc_device']=='fe980000.usb' for s in seen['seeds']))
     def test_fuzz_aborts_when_checks_fail(self):

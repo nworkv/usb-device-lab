@@ -40,11 +40,11 @@ MULTI=bytes.fromhex('05010906a10185010507190029651500256575089506810005010902a10
 
 def hid_descriptor(report): return h([9,0x21],le16(0x0111),[0,1,0x22],le16(len(report)))
 
-def hid(product,report,sub,proto,mps,payload,out=False):
+def hid(product,report,sub,proto,mps,payload,out=False,ep0=64):
     eps=[ep(0x81,3,mps,10)]+([ep(0x01,3,mps,10)] if out else [])
     body=iface(0,0,len(eps),3,sub,proto)+hid_descriptor(report)+b''.join(eps)
     runtime=[rep(0x81,3,mps,10,payload_hex=payload.hex())]+([rep(0x01,3,mps,10,read_length=mps)] if out else [])
-    desc=[{'type':1,'hex':device(pid=0x0110).hex()},{'type':2,'hex':config(1,1,body).hex()},{'type':0x22,'wIndex':0,'hex':report.hex()}]+strings(product)
+    desc=[{'type':1,'hex':device(pid=0x0110,mps=ep0).hex()},{'type':2,'hex':config(1,1,body).hex()},{'type':0x22,'wIndex':0,'hex':report.hex()}]+strings(product)
     rules=[{'event':'control','match':{'bmRequestType':0xa1,'bRequest':1},'reply_hex':payload.hex()},
            {'event':'control','match':{'bmRequestType':0x21,'bRequest':9},'capture':'output_report'},
            {'event':'control','match':{'bmRequestType':0x21,'bRequest':10}},
@@ -186,24 +186,31 @@ def boundary(kind):
     return wrap(desc+strings('Endpoint matrix'),[itf(0,alt(0,eps))],[])
 
 def profiles():
-    yield 'hid','keyboard',hid('HID keyboard',KEYBOARD,1,1,8,bytes(8))
-    yield 'hid','mouse',hid('HID mouse',MOUSE,1,2,4,bytes([0,1,1,0]))
-    yield 'hid','consumer-control',hid('HID consumer control',CONSUMER,0,0,1,bytes(1))
-    yield 'hid','gamepad',hid('HID gamepad',GAMEPAD,0,0,7,bytes([0x80,0x80,0x80,0x80,0x08,0,0]),out=True)
-    yield 'hid','multi-report',hid('HID multi report',MULTI,0,0,8,bytes([1,0,0,0,0,0,0,0]))
-    for d in ('playback','capture','duplex'): yield 'audio','uac1-'+d,uac1(d)
-    yield 'cdc','acm',cdc_acm()
-    yield 'cdc','ecm',cdc_ecm()
-    yield 'storage','bulk-only',storage()
-    yield 'midi','midi-streaming',midi()
-    yield 'uvc','streaming',uvc()
-    for k in ('hid-cdc','hid-audio','hid-storage'): yield 'composite',k,composite(k)
-    for k in ('multi-config','multi-altsetting','endpoint-matrix'): yield 'boundary',k,boundary(k)
+    yield 'hid','keyboard',hid('HID keyboard',KEYBOARD,1,1,8,bytes(8)),2
+    yield 'hid','mouse',hid('HID mouse',MOUSE,1,2,4,bytes([0,1,1,0])),2
+    yield 'hid','consumer-control',hid('HID consumer control',CONSUMER,0,0,1,bytes(1)),2
+    yield 'hid','gamepad',hid('HID gamepad',GAMEPAD,0,0,7,bytes([0x80,0x80,0x80,0x80,0x08,0,0]),out=True),2
+    yield 'hid','multi-report',hid('HID multi report',MULTI,0,0,8,bytes([1,0,0,0,0,0,0,0])),2
+    for d in ('playback','capture','duplex'): yield 'audio','uac1-'+d,uac1(d),2
+    yield 'cdc','acm',cdc_acm(),2
+    yield 'cdc','ecm',cdc_ecm(),2
+    yield 'storage','bulk-only',storage(),2
+    yield 'midi','midi-streaming',midi(),2
+    yield 'uvc','streaming',uvc(),2
+    for k in ('hid-cdc','hid-audio','hid-storage'): yield 'composite',k,composite(k),2
+    for k in ('multi-config','multi-altsetting','endpoint-matrix'): yield 'boundary',k,boundary(k),2
+    for name,product,report,sub,proto,mps,payload,out in (
+        ('keyboard','HID keyboard low speed',KEYBOARD,1,1,8,bytes(8),False),
+        ('mouse','HID mouse low speed',MOUSE,1,2,4,bytes([0,1,1,0]),False),
+        ('consumer-control','HID consumer control low speed',CONSUMER,0,0,1,bytes(1),False),
+        ('gamepad','HID gamepad low speed',GAMEPAD,0,0,7,bytes([0x80,0x80,0x80,0x80,0x08,0,0]),True),
+        ('multi-report','HID multi report low speed',MULTI,0,0,8,bytes([1,0,0,0,0,0,0,0]),False)):
+        yield 'hid-low-speed',name,hid(product,report,sub,proto,mps,payload,out=out,ep0=8),1
 
 def main():
     out=ROOT/'corpus'/'seeds';out.mkdir(parents=True,exist_ok=True);count=0
-    for family,profile,body in profiles():
-        data={'schema_version':1,'udc_driver':'dummy_udc','udc_device':'dummy_udc.0','speed':2,'metadata':{'family':family,'profile':profile}}
+    for family,profile,body,speed in profiles():
+        data={'schema_version':1,'udc_driver':'dummy_udc','udc_device':'dummy_udc.0','speed':speed,'metadata':{'family':family,'profile':profile}}
         data.update(body)
         (out/f'{family}-{profile}.json').write_text(DeviceConfig(data).canonical()+'\n');count+=1
     print(f'{count} seeds written to {out}')
