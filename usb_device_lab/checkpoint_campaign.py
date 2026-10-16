@@ -14,6 +14,13 @@ from .mutator import Mutator
 from .runner import execute, run_summary, FATAL
 from .storage import Store
 
+ENGINE_SOURCES = (
+    'checkpoint_campaign.py', 'checkpoint.py', 'control.py', 'corpus_browser.py',
+    'mutator.py', 'mutation_graph.py', 'model.py', 'topology.py', 'usb_speeds.py',
+    'runner.py', 'storage.py', 'lab.py', 'device.py', 'raw_io.py', 'protocol.py',
+    'errors.py', 'host_agent.py', 'host_logs.py',
+)
+
 
 def lab_identity(config):
     values = {key: str(value) for key, value in vars(config).items()
@@ -24,9 +31,7 @@ def lab_identity(config):
 def engine_identity():
     root = Path(__file__).parent
     digest = hashlib.sha256()
-    for name in ('checkpoint_campaign.py', 'checkpoint.py', 'control.py', 'corpus_browser.py',
-                 'mutator.py', 'model.py', 'topology.py', 'runner.py', 'storage.py', 'lab.py',
-                 'device.py', 'raw_io.py', 'protocol.py', 'errors.py', 'host_agent.py', 'host_logs.py'):
+    for name in ENGINE_SOURCES:
         digest.update(name.encode() + bytes([0]) + (root / name).read_bytes())
     return digest.hexdigest()
 
