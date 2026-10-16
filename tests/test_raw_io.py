@@ -32,7 +32,8 @@ class RawIOAbiTests(unittest.TestCase):
         request,raw=seen.pop()
         self.assertEqual(request,R.WRITE)
         self.assertEqual(struct.unpack('<HHI',raw[:8]),(0x1234,0,3))
-        self.assertEqual(raw[8:],b'abc\0')
+        self.assertEqual(len(raw),R.RAW_EP_IO_SIZE+3)
+        self.assertEqual(raw[R.RAW_EP_IO_SIZE:],b'abc')
     def test_read_header_and_result(self):
         io=R.RawIO.__new__(R.RawIO)
         def call(request,buf):

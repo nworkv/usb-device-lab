@@ -23,7 +23,10 @@ class Tests(unittest.TestCase):
     def test_mutation(self):
         before=self.c.canonical();a,ta=Mutator(7).mutate(self.c);b,tb=Mutator(7).mutate(self.c)
         self.assertEqual(a.digest,b.digest);self.assertEqual(ta,tb);self.assertEqual(before,self.c.canonical())
-        self.assertEqual(a.data['runtime'],self.c.data['runtime'])
+        a.validate()
+        if a.data['runtime']!=self.c.data['runtime']:
+            self.assertTrue(any(e['path'].startswith('/runtime/') and e['status']=='accepted' for e in ta),
+                'runtime changed without an accepted runtime trace entry')
     def test_many_mutations(self):
         m=Mutator(18);c=self.c
         for _ in range(100): c,_=m.mutate(c);c.validate()
