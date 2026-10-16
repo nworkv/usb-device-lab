@@ -37,7 +37,7 @@ class BatchTests(unittest.TestCase):
     def pipeline(self, config, **kwargs):
         self.calls.append((config,kwargs))
         self.assertEqual(config.iterations,len(kwargs['expected_selection']))
-        return dict(campaign_id='a'*32,outcomes=[{} for _ in range(config.iterations)],analysis=dict(summary=dict(kernel_candidate_count=0)))
+        return dict(campaign_id='a'*32,outcomes=[{} for _ in range(config.iterations)],analysis=dict(summary=dict(analysis_complete=True,capture_id='a'*32,kernel_candidate_count=0)))
 
     def run_batch(self, pipeline=None, stop=None):
         with patch.object(batch,'catalogue',return_value=dict(families=self.families)),patch.object(batch,'select_seeds',side_effect=self.select):
@@ -110,6 +110,62 @@ class BatchTests(unittest.TestCase):
                 dual_pipeline.run_complete(self.config,expected_selection=[dict(digest='original')])
         inspect.assert_not_called();prepare.assert_not_called();execute.assert_not_called()
 
+    def test_missing_or_malformed_analysis_never_means_zero_candidates(self):
+        cases=[None,{},[],dict(summary={}),dict(summary=dict(analysis_complete=True,capture_id='a'*32))]
+        for analysis in cases:
+            with self.subTest(analysis=analysis):
+                self.calls.clear()
+                def execute(config,**kwargs):
+                    result=self.pipeline(config,**kwargs);result['analysis']=analysis;return result
+                result=self.run_batch(execute)
+                self.assertEqual(result['state'],'failed')
+                self.assertEqual(len(self.calls),1)
+                self.assertEqual(result['completed_groups'],0)
+
+    def test_analysis_complete_requires_literal_true(self):
+        for flag in (False,None,1,'true'):
+            with self.subTest(flag=flag):
+                self.calls.clear()
+                def execute(config,**kwargs):
+                    result=self.pipeline(config,**kwargs);result['analysis']['summary']['analysis_complete']=flag;return result
+                self.assertEqual(self.run_batch(execute)['state'],'failed')
+                self.assertEqual(len(self.calls),1)
+
+    def test_candidate_count_requires_nonnegative_integer(self):
+        for count in (None,True,False,-1,0.5,'0'):
+            with self.subTest(count=count):
+                self.calls.clear()
+                def execute(config,**kwargs):
+                    result=self.pipeline(config,**kwargs);result['analysis']['summary']['kernel_candidate_count']=count;return result
+                self.assertEqual(self.run_batch(execute)['state'],'failed')
+                self.assertEqual(len(self.calls),1)
+
+    def test_analysis_from_another_capture_blocks_next_group(self):
+        def execute(config,**kwargs):
+            result=self.pipeline(config,**kwargs);result['analysis']['summary']['capture_id']='b'*32;return result
+        result=self.run_batch(execute)
+        self.assertEqual(result['state'],'failed')
+        self.assertEqual(len(self.calls),1)
+        self.assertIn('capture',result['error'])
+
+    def test_returned_campaign_cannot_replace_captured_identity(self):
+        def execute(config,**kwargs):
+            kwargs['on_capture'](None,Path('/fixture/'+'b'*32))
+            return self.pipeline(config,**kwargs)
+        result=self.run_batch(execute)
+        self.assertEqual(result['state'],'failed')
+        self.assertEqual(len(self.calls),1)
+        self.assertEqual(result['groups'][0]['campaign_id'],'b'*32)
+
+
+    def test_invalid_campaign_identity_blocks_next_group(self):
+        for ident in (None,True,0,'not-a-uuid','A'*32):
+            with self.subTest(ident=ident):
+                self.calls.clear()
+                def execute(config,**kwargs):
+                    result=self.pipeline(config,**kwargs);result['campaign_id']=ident;return result
+                self.assertEqual(self.run_batch(execute)['state'],'failed')
+                self.assertEqual(len(self.calls),1)
 
 if __name__=='__main__':
     unittest.main()

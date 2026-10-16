@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import signal
 import stat
@@ -50,6 +51,23 @@ def write_snapshot(path, value):
         finally:os.close(directory)
     finally:
         if os.path.exists(temporary):os.unlink(temporary)
+
+
+def analysis_candidates(result):
+    """Unknown/incomplete analysis must not be treated as zero candidates."""
+    campaign = result.get('campaign_id')
+    if type(campaign) is not str or re.fullmatch(r'[0-9a-f]{32}',campaign) is None:
+        raise RuntimeError('Group analysis requires a valid campaign identity')
+    analysis = result.get('analysis')
+    summary = analysis.get('summary') if type(analysis) is dict else None
+    if type(summary) is not dict or summary.get('analysis_complete') is not True:
+        raise RuntimeError('Group analysis is missing or incomplete; next group refused')
+    if summary.get('capture_id') != campaign:
+        raise RuntimeError('Group analysis capture does not match campaign; next group refused')
+    count = summary.get('kernel_candidate_count')
+    if type(count) is not int or count<0:
+        raise RuntimeError('Group analysis candidate count is missing or invalid; next group refused')
+    return count
 
 
 def run_batch(config, *, stop=None, skip=None, pipeline=None, on_progress=None, expected_plan=None):
@@ -101,7 +119,10 @@ def run_batch(config, *, stop=None, skip=None, pipeline=None, on_progress=None, 
                 group_config = replace(config,families=(group['family'],),iterations=len(group['selection']))
                 result = pipeline(group_config,stop=stop,skip=skip,on_capture=capture,expected_selection=group['selection'])
                 if type(result) is not dict:raise RuntimeError('Invalid pipeline result')
-                row['campaign_id']=result.get('campaign_id') or row['campaign_id']
+                reported = result.get('campaign_id')
+                if row['campaign_id'] is not None and reported is not None and reported!=row['campaign_id']:
+                    raise RuntimeError('Pipeline campaign does not match captured campaign; next group refused')
+                row['campaign_id']=reported or row['campaign_id']
                 outcomes = result.get('outcomes')
                 if type(outcomes) is list:
                     row['attempts_recorded']=len(outcomes)
@@ -111,7 +132,7 @@ def run_batch(config, *, stop=None, skip=None, pipeline=None, on_progress=None, 
                 if stop.is_set() or result.get('stopped'):
                     row['state']=progress['state']='stopped';publish();break
                 if row['attempts_recorded']!=row['planned']:raise RuntimeError('Group did not record every planned attempt')
-                candidates = result.get('analysis',{}).get('summary',{}).get('kernel_candidate_count',0)
+                candidates = analysis_candidates(result)
                 if candidates:
                     row['state']=progress['state']='review_required'
                     progress['error']='Kernel report candidates require operator review; causality is unknown'
