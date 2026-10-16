@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "udc_driver": "dummy_udc",
+  "udc_device": "dummy_udc.0",
+  "speed": 5,
+  "metadata": {
+    "family": "experimental",
+    "profile": "superspeed-control-only"
+  },
+  "descriptors": [
+    {
+      "type": 1,
+      "hex": "12010003000000096b1d3001000100000001"
+    },
+    {
+      "type": 2,
+      "hex": "0902120001010080320904000000ff000000"
+    },
+    {
+      "type": 15,
+      "hex": "050f0f00010a1003000800030a0000"
+    }
+  ],
+  "runtime": {
+    "experimental_superspeed_control_only": true,
+    "configurations": [
+      {
+        "value": 1,
+        "interfaces": [
+          {
+            "number": 0,
+            "alternates": [
+              {
+                "setting": 0,
+                "endpoints": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "protocol": {
+    "name": "script",
+    "rules": []
+  },
+  "wire_mutator": {
+    "seed": 42,
+    "probability": 0.05
+  }
+}
