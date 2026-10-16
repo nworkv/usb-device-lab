@@ -2,27 +2,41 @@ import copy
 import random
 import zlib
 from .model import DeviceConfig
+from .mutation_graph import targets,edit,path_name,digest
 
 class Mutator:
-    def __init__(self,seed=0): self.random=random.Random(seed)
-    def mutate(self,parent,steps=None):
-        d=copy.deepcopy(parent.data); rng=self.random; trace=[]
-        candidates=[(x,'hex') for x in d['descriptors']]
-        candidates.extend((x,'reply_hex') for x in d.get('protocol',{}).get('rules',[]) if 'reply_hex' in x)
-        for _ in range(steps if steps is not None else rng.randint(1,4)):
-            obj,key=rng.choice(candidates); data=bytearray.fromhex(obj[key]); p=rng.randrange(len(data)) if data else 0
-            op=rng.choice(('bit','byte','insert','delete','truncate','word'))
-            if op=='bit' and data: data[p]^=1<<rng.randrange(8)
-            elif op=='byte' and data: data[p]=rng.choice((0,1,7,9,18,127,128,255))
-            elif op=='insert' and len(data)<65535: data[p:p]=bytes([rng.randrange(256)])
-            elif op=='delete' and data: del data[p:p+rng.randint(1,8)]
-            elif op=='truncate' and data: del data[p:]
-            elif op=='word' and len(data)>1:
-                p=min(p,len(data)-2); data[p:p+2]=rng.choice((0,1,64,255,256,1024,65535)).to_bytes(2,'little')
-            obj[key]=data.hex(); trace.append({'operation':op,'offset':p,'field':key})
-        seed=rng.getrandbits(64); d['wire_mutator']={'seed':seed,'probability':0.05}
-        trace.append({'operation':'wire_seed','seed':seed})
-        return DeviceConfig(d),trace
+    VERSION='usb-tree-model-valid-v2'
+    def __init__(self,seed=0):self.random=random.Random(seed)
+    def catalogue(self,parent):
+        return dict(version=self.VERSION,targets=[dict(path=path_name(p),kind=k) for p,k in targets(parent.data)],
+            excluded=dict(schema_version='Storage schema',udc_driver='Local controller binding',udc_device='Local controller binding',
+                          metadata='Research metadata',protocol_name='Executor plugin selector'))
+    def mutate(self,parent,steps=None,target=None):
+        count=self.random.randint(1,4) if steps is None else steps
+        if type(count) is not int or not 1<=count<=16:raise ValueError('steps must be 1..16')
+        data=copy.deepcopy(parent.data);trace=[]
+        for _ in range(count):
+            choices=targets(data)
+            if target is not None:choices=[entry for entry in choices if entry[0]==tuple(target)]
+            if not choices:raise ValueError('No eligible mutation targets')
+            path,_=self.random.choice(choices);accepted=False;last_error='No effective change'
+            for retry in range(16):
+                candidate=copy.deepcopy(data)
+                try:
+                    entry=edit(candidate,path,self.random)
+                    if not entry['changed']:continue
+                    checked=DeviceConfig(candidate)
+                except (ValueError,KeyError,TypeError,OverflowError,IndexError) as error:
+                    last_error=type(error).__name__+': '+str(error)[:256];continue
+                data=checked.data;entry.update(status='accepted',engine=self.VERSION,validation='model_only_not_UDC_or_class_conformance')
+                trace.append(entry);accepted=True;break
+            if not accepted:trace.append(dict(path=path_name(path),status='skipped',reason=last_error,engine=self.VERSION))
+        wire=data.setdefault('wire_mutator',{})
+        if target is None or tuple(target)!=('wire_mutator','seed'):
+            before=wire.get('seed',0);seed=self.random.getrandbits(64);wire['seed']=seed
+            trace.append(dict(path='/wire_mutator/seed',operation='wire_seed',before_sha256=digest(before),after_sha256=digest(seed),seed=seed,status='accepted',engine=self.VERSION))
+        wire.setdefault('probability',0.05)
+        return DeviceConfig(data),trace
 
 class WireMutator:
     def __init__(self,options=None):

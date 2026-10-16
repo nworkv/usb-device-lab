@@ -10,7 +10,7 @@ import sys
 import uuid
 from pathlib import Path
 
-VERSION = 'uart-round-robin-v1'
+VERSION = 'usb-tree-model-valid-v2-round-robin'
 
 
 def fingerprint(config, parents):
@@ -53,7 +53,7 @@ def load(path, expected, iterations):
         raise ValueError('Checkpoint exceeds 64 KiB')
     data = json.loads(raw, object_pairs_hook=pairs)
     if type(data) is not dict or set(data) != {'version', 'fingerprint', 'next_iteration', 'prng', 'source_capture'} or data['version'] != VERSION or data['fingerprint'] != expected:
-        raise ValueError('Incompatible UART checkpoint; SSH/KCOV checkpoints are not accepted')
+        raise ValueError('Incompatible mutation engine or settings; start a new campaign. Saved configuration replay remains available')
     index = data['next_iteration']
     if type(index) is not int or not 0 <= index <= iterations or type(data['source_capture']) is not str or re.fullmatch(r'[0-9a-f]{32}', data['source_capture']) is None:
         raise ValueError('Invalid checkpoint progress/identity')
