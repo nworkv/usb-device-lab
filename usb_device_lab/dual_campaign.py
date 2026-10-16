@@ -1,4 +1,4 @@
-"""Additive shared UART/SSH executor; old campaign entry points remain unchanged."""
+"""Shared UART/SSH executor with cooperative per-attempt skip control."""
 from dataclasses import asdict
 import fcntl
 import hashlib
@@ -41,7 +41,7 @@ def fingerprint(config, parents):
 
 
 def run_campaign(config, seeds, *, stop=None, receiver_factory=None, command_factory=None,
-                 lock_root=Path('/run/lock/usb-device-lab'), resume=None):
+                 lock_root=Path('/run/lock/usb-device-lab'), resume=None, skip=None):
     from .model import DeviceConfig
     from .mutator import Mutator
     if config.telemetry_mode not in ('uart', 'ssh') or config.feedback != 'none' or config.strategy != 'round-robin':
@@ -67,6 +67,7 @@ def run_campaign(config, seeds, *, stop=None, receiver_factory=None, command_fac
     if restored:
         mutator.random.setstate(restored['prng'])
     stop = stop if stop is not None else threading.Event()
+    skip = skip if skip is not None else threading.Event()
     factory = receiver_factory or (lambda settings, path: receiver_for(config, path))
     lock_root = Path(lock_root)
     lock_root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -126,9 +127,9 @@ def run_campaign(config, seeds, *, stop=None, receiver_factory=None, command_fac
             deadline = time.monotonic() + seconds
             while time.monotonic() < deadline:
                 connected()
-                if stop.wait(min(0.02, max(0, deadline - time.monotonic()))):
+                if skip.is_set() or stop.wait(min(0.02, max(0, deadline - time.monotonic()))):
                     return False
-            return not stop.is_set()
+            return not stop.is_set() and not skip.is_set()
         for iteration in range(first, config.iterations):
             if stop.is_set():
                 break
@@ -156,15 +157,15 @@ def run_campaign(config, seeds, *, stop=None, receiver_factory=None, command_fac
                             deadline = time.monotonic() + config.seconds
                             while process.poll() is None and time.monotonic() < deadline:
                                 connected()
-                                if stop.wait(0.02):
+                                if skip.is_set() or stop.wait(0.02):
                                     break
-                            completed = process.poll() is None and not stop.is_set() and time.monotonic() >= deadline
+                            completed = process.poll() is None and not stop.is_set() and not skip.is_set() and time.monotonic() >= deadline
                         finally:
                             active_end = time.monotonic_ns()
                             if process is not None:
                                 terminate(process)
                             log.flush(); os.fsync(log.fileno())
-                    if process.returncode not in (0, -signal.SIGTERM, -signal.SIGKILL) or not completed and not stop.is_set():
+                    if process.returncode not in (0, -signal.SIGTERM, -signal.SIGKILL) or not completed and not stop.is_set() and not skip.is_set():
                         raise RuntimeError('Executor exited before window completion: %s' % process.returncode)
                     pause(config.post_run_capture_seconds)
             except Exception as error:
@@ -181,8 +182,9 @@ def run_campaign(config, seeds, *, stop=None, receiver_factory=None, command_fac
                 active_end = max(active_end, active_start)
                 end = max(time.monotonic_ns(), active_end + 1)
                 save(directory / 'window.json', asdict(AttemptWindow(directory.name, ident, start, end, active_start, active_end)))
-                result = dict(iteration=iteration, window_completed=completed, interrupted=stop.is_set(),
-                    infrastructure_error=fatal, executor_returncode=process.returncode if process is not None else None,
+                skipped = skip.is_set() and not stop.is_set() and fatal is None
+                result = dict(iteration=iteration, window_completed=completed and not skipped, interrupted=stop.is_set(),
+                    skipped=skipped, infrastructure_error=fatal, executor_returncode=process.returncode if process is not None else None,
                     capture_status=receiver.status(), mode=config.telemetry_mode, completeness='unknown',
                     coverage_valid=False, pcs=[], causal=False, capture_id=ident)
                 save(directory / 'result.json', result); outcomes.append(result)
@@ -196,6 +198,8 @@ def run_campaign(config, seeds, *, stop=None, receiver_factory=None, command_fac
                 finally:
                     os.close(directory_fd)
                 checkpoint.write(root / 'checkpoint.json', digest, iteration + 1, mutator.random, ident)
+                if skipped:
+                    skip.clear()
         return dict(campaign_id=ident, directory=str(root), outcomes=outcomes)
     finally:
         try:
