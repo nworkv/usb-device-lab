@@ -11,11 +11,12 @@ from .research_ui import SCRIPT as RESEARCH_SCRIPT
 from .dual_pipeline import run_complete
 from .device_cards import SCRIPT as DEVICE_SCRIPT
 from .campaign_options import SCRIPT as OPTIONS_SCRIPT, validate_options, option_values, apply_options, window_budget
+from .corpus_selection import SCRIPT as CORPUS_SCRIPT, catalogue, apply_family
 
 SKIP_SCRIPT = """'use strict';
 el('skip-attempt').onclick=()=>{el('skip-attempt').disabled=true;action('/api/skip',{});};
 setInterval(()=>{const b=el('skip-attempt');b.disabled=!token||!state?.skip_allowed||Boolean(state?.skip_pending);b.textContent=state?.skip_pending?'Пропуск запрошен':'Пропустить одну попытку';},250);
-""".encode('utf-8') + DEVICE_SCRIPT + OPTIONS_SCRIPT
+""".encode('utf-8') + DEVICE_SCRIPT + OPTIONS_SCRIPT + CORPUS_SCRIPT
 
 
 class Supervisor(EventSupervisor):
@@ -23,6 +24,7 @@ class Supervisor(EventSupervisor):
         super().__init__(config)
         self.skip_event = threading.Event()
         self.options = {}
+        self.corpus_family = None
 
     def start(self, ident=None):
         with self.lock:
@@ -36,6 +38,17 @@ class Supervisor(EventSupervisor):
             if self.closing or self.busy():
                 raise RuntimeError('Настройки запрещено менять во время запуска или анализа')
             self.options = validate_options(raw)
+
+    def corpus_catalogue(self):
+        with self.lock:
+            return catalogue(self.config)
+
+    def set_corpus_family(self, family):
+        with self.lock:
+            if self.closing or self.busy():
+                raise RuntimeError('Корпус запрещено менять во время запуска или анализа')
+            apply_family(self.config, family)
+            self.corpus_family = family
 
     def skip_allowed(self):
         return (not self.closing and self.busy() and self.stage == 'running'
@@ -53,10 +66,13 @@ class Supervisor(EventSupervisor):
         with self.lock:
             value = super().status()
             options = option_values(self.config, getattr(self, 'options', {}))
+            family = getattr(self, 'corpus_family', None)
             value.update(skip_allowed=self.skip_allowed(), skip_pending=self.skip_event.is_set(),
-                campaign_options=options, estimated_window_seconds=window_budget(options))
+                campaign_options=options, estimated_window_seconds=window_budget(options), corpus_family=family)
             if not self.replay_source:
                 value.update(iterations=options['iterations'], seconds=options['seconds'])
+                if family is not None:
+                    value.update(families=[family] if family else [], profiles=[])
             return value
 
     def work(self, resume):
@@ -69,6 +85,7 @@ class Supervisor(EventSupervisor):
         try:
             with self.lock:
                 config = apply_options(self.config, getattr(self, 'options', {}))
+                config = apply_family(config, getattr(self, 'corpus_family', None))
             result = run_complete(config, resume=resume, stop=self.stop_event,
                 skip=self.skip_event, on_capture=capture, on_stage=stage)
             with self.lock:
@@ -83,6 +100,15 @@ class Supervisor(EventSupervisor):
 class Handler(EventHandler):
     def do_GET(self):
         url = urlsplit(self.path)
+        if url.path == '/api/corpus':
+            if not self.guard():
+                return
+            if self.path != url.path:
+                return self.reply(400, {'error': 'Параметры каталога не допускаются'})
+            try:
+                return self.reply(200, self.server.supervisor.corpus_catalogue())
+            except (OSError, ValueError, TypeError, KeyError) as error:
+                return self.reply(400, {'error': str(error)})
         if url.path not in ('/', '/skip.js', '/research.js'):
             return super().do_GET()
         if not self.guard(auth=False):
@@ -108,7 +134,7 @@ class Handler(EventHandler):
         return self.reply(200, page, 'text/html; charset=utf-8')
 
     def do_POST(self):
-        if self.path not in ('/api/skip', '/api/options'):
+        if self.path not in ('/api/skip', '/api/options', '/api/corpus'):
             return super().do_POST()
         if not self.guard():
             return
@@ -117,7 +143,11 @@ class Handler(EventHandler):
             if not 1 <= size <= 4096 or self.headers.get('Content-Type') != 'application/json':
                 raise ValueError('Требуется ограниченный JSON')
             value = json.loads(self.rfile.read(size))
-            if self.path == '/api/options':
+            if self.path == '/api/corpus':
+                if type(value) is not dict or set(value) != {'family'}:
+                    raise ValueError('Укажите только family')
+                self.server.supervisor.set_corpus_family(value['family'])
+            elif self.path == '/api/options':
                 self.server.supervisor.set_options(value)
             else:
                 if type(value) is not dict or value:
