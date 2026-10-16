@@ -7,7 +7,7 @@ from .uart_pipeline import select_seeds, prepare_seeds, analyze_capture, dump
 
 def run_complete(config, *, resume=None, stop=None, preflight=True, command_factory=None,
                  receiver_factory=None, on_capture=None, on_stage=None,
-                 lock_root=Path('/run/lock/usb-device-lab')):
+                 lock_root=Path('/run/lock/usb-device-lab'), skip=None):
     stage = on_stage or (lambda value: None)
     stage('preparing')
     selection = select_seeds(config)
@@ -28,8 +28,11 @@ def run_complete(config, *, resume=None, stop=None, preflight=True, command_fact
         return receiver
     result, error = None, None
     try:
-        result = run_campaign(config, seeds, stop=stop, resume=resume,
-            receiver_factory=factory, command_factory=command_factory, lock_root=lock_root)
+        controls = dict(stop=stop, resume=resume, receiver_factory=factory,
+            command_factory=command_factory, lock_root=lock_root)
+        if skip is not None:
+            controls['skip'] = skip
+        result = run_campaign(config, seeds, **controls)
     except Exception as caught:
         error = str(caught)
     if not captured:
