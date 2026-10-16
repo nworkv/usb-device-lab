@@ -11,6 +11,7 @@ from .protocol import load_protocol
 from .raw_io import (CLEAR_HALT,CONFIGURE,DISABLE,ENABLE,EP0_READ,EP0_WRITE,FETCH,INIT,READ,RUN,
                      SET_HALT,STALL,WRITE,RawIO)
 from .topology import active_endpoints,validate_topology
+from .usb_speeds import check_requested_speed
 
 JOIN_TIMEOUT=2
 
@@ -57,7 +58,7 @@ class Device:
             with self.lock: self.protocol.configured(value)
         try:
             for ep in endpoints:
-                raw=bytes.fromhex(ep['descriptor_hex']);handle=self.io.call(ENABLE,ctypes.create_string_buffer(raw+b'\0\0',9))
+                raw=bytes.fromhex(ep['descriptor_hex']);handle=self.io.call(ENABLE,ctypes.create_string_buffer(raw+bytes(2),9))
                 stop=threading.Event();t=threading.Thread(target=self.worker,args=(handle,ep,stop),daemon=True)
                 self.eps[raw[2]]=handle;self.workers.append((handle,stop,t))
             if value: self.io.call(CONFIGURE)
@@ -87,7 +88,7 @@ class Device:
             elif bm==0x81 and req==10 and not v and n==1 and i in self.settings: reply=bytes([self.settings[i]])
             elif bm in (0x80,0x81,0x82) and req==0 and not v and n==2:
                 if bm==0x80 and not i: reply=bytes([int(bool(self.data.get('runtime',{}).get('self_powered',False))),0])
-                elif bm==0x81 and i in self.settings: reply=b'\0\0'
+                elif bm==0x81 and i in self.settings: reply=bytes(2)
                 elif bm==0x82 and i in self.eps: reply=bytes([int(i in self.halted),0])
             elif bm==2 and req in (1,3) and not v and not n and i in self.eps:
                 self.io.scalar(CLEAR_HALT if req==1 else SET_HALT,self.eps[i])
@@ -129,9 +130,11 @@ class Device:
         except Exception as e:
             if not stop.is_set(): log(kind='endpoint_error',address=address,message=str(e))
     def run(self):
-        signal.signal(signal.SIGUSR1,lambda *_:None);signal.siginterrupt(signal.SIGUSR1,True);self.interrupts=True
-        self.io=self.io or RawIO()
         try:
+            speed_check=check_requested_speed(self.data)
+            log(kind='usb_speed_precheck',**speed_check)
+            signal.signal(signal.SIGUSR1,lambda *_:None);signal.siginterrupt(signal.SIGUSR1,True);self.interrupts=True
+            self.io=self.io or RawIO()
             init=ctypes.create_string_buffer(257)
             init[:257]=struct.pack('128s128sB',self.data['udc_driver'].encode(),self.data['udc_device'].encode(),self.data.get('speed',2))
             self.io.call(INIT,init);self.io.call(RUN);log(kind='executor_started')
@@ -149,9 +152,11 @@ class Device:
                         self.disable()
                         with self.lock: self.protocol.reset()
         finally:
-            try: self.disable()
+            try:
+                if self.io is not None: self.disable()
             finally:
                 try: self.protocol.close()
-                finally: self.io.close()
+                finally:
+                    if self.io is not None: self.io.close()
 
 if __name__=='__main__': Device(DeviceConfig.load(sys.argv[1])).run()

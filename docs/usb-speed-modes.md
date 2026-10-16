@@ -23,14 +23,26 @@ maximum is the controller's reported ceiling, not a list of every supported
 mode. It does not prove support for Low Speed. current_at_inspection is a
 snapshot of the port's negotiated speed when inspected; it is not attributed
 to a particular attempt or to this process. controller_supported_modes remains
-null. These diagnostics do not open Raw Gadget, connect to SSH, bind a gadget,
-change speed, or provide automatic fallback. They do not add a compatibility
-gate for individual seeds or mutated children. The existing metadata checks
-remain separate from hardware acceptance.
+null. Preflight diagnostics do not open Raw Gadget, connect to SSH, bind a
+gadget, change speed, or provide automatic fallback. Metadata checks remain
+separate from hardware acceptance.
 
-Device.run passes the configured speed byte to USB_RAW_IOCTL_INIT. Model
-acceptance does not prove that the selected physical UDC can operate at that
-speed. Controller/kernel support must still be verified on the stand.
+## Executor speed-ceiling guard
+
+Before opening its default RawIO and issuing INIT/RUN, Device.run checks the
+requested configuration speed against the selected UDC's reported maximum.
+A request above a known maximum is rejected with no fallback. This also checks
+mutated children because it runs inside each executor process. Unsupported
+software speeds and invalid UDC path components are rejected before the check
+reads sysfs. The code does not change the requested speed or rewrite descriptors.
+
+When maximum_speed is unavailable or unrecognized, the comparison remains
+unknown and execution is not blocked by this guard alone. Being below the
+reported maximum is not proof that the controller supports that lower speed.
+The usb_speed_precheck executor log records the requested speed and the ceiling
+comparison, not a measured or confirmed per-attempt link speed. Controller and
+kernel compatibility still require stand verification. Protocol resources and
+already-owned I/O are closed if the guard rejects the configuration.
 
 For an ordinary low-speed device, provide consistent device/configuration/class
 descriptors, including an EP0 maximum packet size of 8 bytes. Descriptor payloads
