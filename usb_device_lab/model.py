@@ -3,6 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 from .topology import validate_topology
+from .usb_speeds import SUPPORTED_MODEL_SPEEDS
 
 def blob(value):
     if not isinstance(value,str): raise ValueError('hex string required')
@@ -22,7 +23,7 @@ class DeviceConfig:
         for name in ('udc_driver','udc_device'):
             s=d.get(name,'')
             if not isinstance(s,str) or not s or chr(0) in s or len(s.encode())>=128: raise ValueError('invalid '+name)
-        if type(d.get('speed',2)) is not int or d.get('speed',2) not in (1,2,3): raise ValueError('low/full/high speed only; SuperSpeed runtime is not implemented')
+        if type(d.get('speed',2)) is not int or d.get('speed',2) not in SUPPORTED_MODEL_SPEEDS: raise ValueError('low/full/high speed only; SuperSpeed runtime is not implemented')
         entries=d.get('descriptors',[])
         if not isinstance(entries,list) or not 1<=len(entries)<=256: raise ValueError('1..256 descriptors required')
         keys=set()

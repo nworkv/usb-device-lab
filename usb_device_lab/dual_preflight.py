@@ -7,6 +7,7 @@ import stat
 import sys
 from pathlib import Path
 from .uart_preflight import access, character, writable_ancestor
+from .usb_speeds import udc_speed_report
 
 
 def udc_driver_name(udc):
@@ -95,6 +96,8 @@ def inspect(config, seeds, *, sys_root=Path('/sys'), raw_path=Path('/dev/raw-gad
         add('no_cleanup_marker', False)
     return dict(schema_version=2, mode=config.telemetry_mode, checks=checks,
         metadata_checks_passed=all(c['passed'] for c in checks), hardware_checked=False, runtime_connected=False,
+        usb_speeds=udc_speed_report(udc),
         unknown=['electrical_levels', 'console_configuration', 'SSH_authentication_and_remote_log_permissions',
-                 'host_health', 'exclusive_UDC_ownership', 'usb_enumeration', 'capture_completeness'],
-        note='Metadata only. Mode selection is not hardware or network acceptance.')
+                 'host_health', 'exclusive_UDC_ownership', 'usb_enumeration', 'capture_completeness',
+                 'controller_supported_speed_modes', 'per_attempt_negotiated_speed'],
+        note='Metadata only. Mode selection and sysfs speed metadata are not hardware or network acceptance.')
