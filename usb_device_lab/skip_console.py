@@ -1,4 +1,4 @@
-"""Authenticated single-attempt skip control mounted on the event research console."""
+"""Authenticated campaign controls mounted on the event research console."""
 import json
 import os
 import secrets
@@ -10,17 +10,19 @@ from .event_console import PAGE, PANEL
 from .research_ui import SCRIPT as RESEARCH_SCRIPT
 from .dual_pipeline import run_complete
 from .device_cards import SCRIPT as DEVICE_SCRIPT
+from .campaign_options import SCRIPT as OPTIONS_SCRIPT, validate_options, option_values, apply_options, window_budget
 
 SKIP_SCRIPT = """'use strict';
 el('skip-attempt').onclick=()=>{el('skip-attempt').disabled=true;action('/api/skip',{});};
 setInterval(()=>{const b=el('skip-attempt');b.disabled=!token||!state?.skip_allowed||Boolean(state?.skip_pending);b.textContent=state?.skip_pending?'Пропуск запрошен':'Пропустить одну попытку';},250);
-""".encode('utf-8') + DEVICE_SCRIPT
+""".encode('utf-8') + DEVICE_SCRIPT + OPTIONS_SCRIPT
 
 
 class Supervisor(EventSupervisor):
     def __init__(self, config):
         super().__init__(config)
         self.skip_event = threading.Event()
+        self.options = {}
 
     def start(self, ident=None):
         with self.lock:
@@ -28,6 +30,12 @@ class Supervisor(EventSupervisor):
                 raise RuntimeError('Запуск или анализ уже выполняется')
             self.skip_event = threading.Event()
             return super().start(ident)
+
+    def set_options(self, raw):
+        with self.lock:
+            if self.closing or self.busy():
+                raise RuntimeError('Настройки запрещено менять во время запуска или анализа')
+            self.options = validate_options(raw)
 
     def skip_allowed(self):
         return (not self.closing and self.busy() and self.stage == 'running'
@@ -44,7 +52,11 @@ class Supervisor(EventSupervisor):
     def status(self):
         with self.lock:
             value = super().status()
-            value.update(skip_allowed=self.skip_allowed(), skip_pending=self.skip_event.is_set())
+            options = option_values(self.config, getattr(self, 'options', {}))
+            value.update(skip_allowed=self.skip_allowed(), skip_pending=self.skip_event.is_set(),
+                campaign_options=options, estimated_window_seconds=window_budget(options))
+            if not self.replay_source:
+                value.update(iterations=options['iterations'], seconds=options['seconds'])
             return value
 
     def work(self, resume):
@@ -55,7 +67,9 @@ class Supervisor(EventSupervisor):
             with self.lock:
                 self.stage = value
         try:
-            result = run_complete(self.config, resume=resume, stop=self.stop_event,
+            with self.lock:
+                config = apply_options(self.config, getattr(self, 'options', {}))
+            result = run_complete(config, resume=resume, stop=self.stop_event,
                 skip=self.skip_event, on_capture=capture, on_stage=stage)
             with self.lock:
                 self.result = result
@@ -94,7 +108,7 @@ class Handler(EventHandler):
         return self.reply(200, page, 'text/html; charset=utf-8')
 
     def do_POST(self):
-        if self.path != '/api/skip':
+        if self.path not in ('/api/skip', '/api/options'):
             return super().do_POST()
         if not self.guard():
             return
@@ -103,9 +117,12 @@ class Handler(EventHandler):
             if not 1 <= size <= 4096 or self.headers.get('Content-Type') != 'application/json':
                 raise ValueError('Требуется ограниченный JSON')
             value = json.loads(self.rfile.read(size))
-            if type(value) is not dict or value:
-                raise ValueError('Ожидается пустой JSON-объект')
-            self.server.supervisor.skip_current()
+            if self.path == '/api/options':
+                self.server.supervisor.set_options(value)
+            else:
+                if type(value) is not dict or value:
+                    raise ValueError('Ожидается пустой JSON-объект')
+                self.server.supervisor.skip_current()
             self.reply(200, self.server.supervisor.status())
         except RuntimeError as error:
             self.reply(409, {'error': str(error)})
