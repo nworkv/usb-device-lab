@@ -9,11 +9,12 @@ from .event_console import Supervisor as EventSupervisor, Handler as EventHandle
 from .event_console import PAGE, PANEL
 from .research_ui import SCRIPT as RESEARCH_SCRIPT
 from .dual_pipeline import run_complete
+from .device_cards import SCRIPT as DEVICE_SCRIPT
 
 SKIP_SCRIPT = """'use strict';
 el('skip-attempt').onclick=()=>{el('skip-attempt').disabled=true;action('/api/skip',{});};
 setInterval(()=>{const b=el('skip-attempt');b.disabled=!token||!state?.skip_allowed||Boolean(state?.skip_pending);b.textContent=state?.skip_pending?'Пропуск запрошен':'Пропустить одну попытку';},250);
-""".encode('utf-8')
+""".encode('utf-8') + DEVICE_SCRIPT
 
 
 class Supervisor(EventSupervisor):
