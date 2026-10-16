@@ -7,10 +7,12 @@ from .uart_pipeline import select_seeds, prepare_seeds, analyze_capture, dump
 
 def run_complete(config, *, resume=None, stop=None, preflight=True, command_factory=None,
                  receiver_factory=None, on_capture=None, on_stage=None,
-                 lock_root=Path('/run/lock/usb-device-lab'), skip=None):
+                 lock_root=Path('/run/lock/usb-device-lab'), skip=None, expected_selection=None):
     stage = on_stage or (lambda value: None)
     stage('preparing')
     selection = select_seeds(config)
+    if expected_selection is not None and selection != expected_selection:
+        raise ValueError('Corpus selection changed after batch planning; no USB launch')
     if preflight:
         report = inspect(config, [r['path'] for r in selection], lock_root=lock_root)
         if report['metadata_checks_passed'] is not True:
