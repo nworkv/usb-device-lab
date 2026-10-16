@@ -21,8 +21,8 @@ class DeviceConfig:
         if not isinstance(d,dict) or d.get('schema_version')!=1: raise ValueError('schema_version must be 1')
         for name in ('udc_driver','udc_device'):
             s=d.get(name,'')
-            if not isinstance(s,str) or not s or '\0' in s or len(s.encode())>=128: raise ValueError('invalid '+name)
-        if type(d.get('speed',2)) is not int or d.get('speed',2) not in (2,3): raise ValueError('full/high speed only')
+            if not isinstance(s,str) or not s or chr(0) in s or len(s.encode())>=128: raise ValueError('invalid '+name)
+        if type(d.get('speed',2)) is not int or d.get('speed',2) not in (1,2,3): raise ValueError('low/full/high speed only; SuperSpeed runtime is not implemented')
         entries=d.get('descriptors',[])
         if not isinstance(entries,list) or not 1<=len(entries)<=256: raise ValueError('1..256 descriptors required')
         keys=set()
@@ -41,4 +41,4 @@ class DeviceConfig:
     def canonical(self): return json.dumps(self.data,sort_keys=True,separators=(',',':'),ensure_ascii=False)
     @property
     def digest(self): return hashlib.sha256(self.canonical().encode()).hexdigest()
-    def save(self,path): Path(path).write_text(json.dumps(self.data,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
+    def save(self,path): Path(path).write_text(json.dumps(self.data,indent=2,ensure_ascii=False)+chr(10),encoding='utf-8')
