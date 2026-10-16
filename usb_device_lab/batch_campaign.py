@@ -52,8 +52,10 @@ def write_snapshot(path, value):
         if os.path.exists(temporary):os.unlink(temporary)
 
 
-def run_batch(config, *, stop=None, skip=None, pipeline=None, on_progress=None):
+def run_batch(config, *, stop=None, skip=None, pipeline=None, on_progress=None, expected_plan=None):
     groups = make_plan(config)
+    if expected_plan is not None and groups != expected_plan:
+        raise ValueError('Batch plan changed before execution; no USB launch')
     stop = threading.Event() if stop is None else stop
     skip = threading.Event() if skip is None else skip
     pipeline = run_complete if pipeline is None else pipeline

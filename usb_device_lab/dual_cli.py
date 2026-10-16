@@ -19,7 +19,7 @@ def main(argv=None):
     args = p.parse_args(argv)
     config = load(args.config, args.mode)
     if args.action == 'serve':
-        from .generation_console import serve
+        from .batch_console import serve
         serve(config, args.port); return 0
     stop = threading.Event()
     previous = {sig: signal.signal(sig, lambda *_: stop.set()) for sig in (signal.SIGINT, signal.SIGTERM)}
