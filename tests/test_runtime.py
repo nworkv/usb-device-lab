@@ -123,15 +123,16 @@ class ClassifierTests(unittest.TestCase):
 
 FAKE_AGENT="""
 import json,os,sys
-state=os.environ['FAKE_STATE'];mode=os.environ.get('FAKE_MODE','normal')
+from pathlib import Path
+state=Path(os.environ['FAKE_STATE']);mode=os.environ.get('FAKE_MODE','normal')
 def emit(v): print(json.dumps(v),flush=True)
 emit({'ready':True,'namespace':'k:boot:1'})
 for line in sys.stdin:
     command=json.loads(line)['command']
     if command=='start': emit({'started':True,'namespace':'k:boot:1'})
     elif command=='stop':
-        n=int(open(state).read()) if os.path.exists(state) else 0
-        open(state,'w').write(str(n+1))
+        n=int(state.read_text()) if state.exists() else 0
+        state.write_text(str(n+1))
         pcs=[] if mode=='empty' else [['0x1','0x2'],['0x1','0x2'],['0x3']][min(n,2)]
         log='BUG: KASAN: use-after-free at 0xdeadbeef\\n' if n==1 else ''
         emit({'saturated':False,'pcs':pcs,'namespace':'k:boot:1','coverage_valid':bool(pcs),'kernel_log':log,'log_dropped':0})
@@ -181,8 +182,13 @@ class WebTests(unittest.TestCase):
         threading.Thread(target=self.server.serve_forever,daemon=True).start()
         self.addCleanup(self.server.server_close);self.addCleanup(self.server.shutdown)
     def get(self,path,host=None):
-        connection=http.client.HTTPConnection('127.0.0.1',self.port);connection.request('GET',path,headers={'Host':host} if host else {})
-        response=connection.getresponse();return response.status,response.read()
+        connection=http.client.HTTPConnection('127.0.0.1',self.port)
+        try:
+            connection.request('GET',path,headers={'Host':host} if host else {})
+            with connection.getresponse() as response:
+                return response.status,response.read()
+        finally:
+            connection.close()
     def test_api(self):
         status,body=self.get('/');self.assertEqual(status,200);self.assertIn(b'USB Device Lab',body)
         self.assertEqual(len(json.loads(self.get('/api/runs')[1])),3)
