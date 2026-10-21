@@ -71,7 +71,17 @@ class Lines:
     def send(self,value):
         if self.stop_event.is_set():raise EOFError('RPC reader closed')
         line=value if isinstance(value,str) else json.dumps(value)
-        self.process.stdin.write((line+'\n').encode('utf-8'));self.process.stdin.flush()
+        pending=memoryview((line+'\n').encode('utf-8'))
+        while pending:
+            if self.stop_event.is_set():raise EOFError('RPC reader closed')
+            try:written=self.process.stdin.write(pending)
+            except InterruptedError:continue
+            if written is None:raise BlockingIOError('RPC write made no progress')
+            if written == 0:raise BrokenPipeError('RPC write made no progress')
+            if not isinstance(written,int) or written < 0 or written > len(pending):
+                raise OSError('invalid RPC write count')
+            pending=pending[written:]
+        self.process.stdin.flush()
 
 def close_rpc_streams(process,rpc=None):
     errors=[]
