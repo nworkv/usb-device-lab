@@ -39,6 +39,7 @@ def main():
     child = logs = rpc = None
     evidence = {}
     payload = None
+    collector_result = None
     with tempfile.TemporaryFile(mode='w+') as stderr:
         try:
             emit({'ready': True, 'namespace': namespace})
@@ -46,6 +47,7 @@ def main():
                 command = json.loads(line).get('command')
                 if command == 'start' and child is None:
                     evidence = {}
+                    collector_result = None
                     logs = KernelLogs()
                     child = subprocess.Popen([args.collector, str(args.bus)], stdin=subprocess.PIPE,
                         stdout=subprocess.PIPE, stderr=stderr, text=False, bufsize=0)
@@ -60,6 +62,7 @@ def main():
                 elif command == 'stop' and child is not None:
                     rpc.send('stop')
                     result = rpc.receive(timeout=30)
+                    collector_result = dict(result)
                     child.stdin.close()
                     child.wait(timeout=3)
                     if child.returncode:
@@ -75,6 +78,7 @@ def main():
                     result['namespace'] = namespace
                     result['coverage_valid'] = bool(result['pcs']) and not result['saturated']
                     emit(result)
+                    collector_result = None
                 else:
                     raise ValueError('invalid agent state')
         except Exception as error:
@@ -98,6 +102,9 @@ def main():
                 payload['collector_cleanup_error'] = '; '.join(cleanup_errors)
             if payload is not None:
                 payload.update(evidence)
+                if collector_result is not None:
+                    # Diagnostic only: never promote failed-run coverage to top level.
+                    payload['collector_result'] = collector_result
                 stderr.flush()
                 stderr.seek(0)
                 payload['collector_stderr'] = stderr.read(16384)
