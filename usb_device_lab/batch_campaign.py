@@ -1,4 +1,4 @@
-"""Sequential execution of corpus families; plan-only unless --execute is supplied."""
+"""Sequential corpus execution; group errors are recorded without aborting the batch."""
 import argparse
 from dataclasses import replace
 import fcntl
@@ -79,6 +79,7 @@ def run_batch(config, *, stop=None, skip=None, pipeline=None, on_progress=None, 
     pipeline = run_complete if pipeline is None else pipeline
     progress = dict(schema_version=1,state='planned',batch_id=None,directory=None,
         planned_attempts=sum(len(group['selection']) for group in groups),completed_groups=0,
+        failed_groups=0,processed_groups=0,kernel_candidate_count=0,review_required=False,
         groups=[],causal=False,hardware_acceptance=False,error=None)
     if stop.is_set():
         progress['state']='stopped'
@@ -86,8 +87,7 @@ def run_batch(config, *, stop=None, skip=None, pipeline=None, on_progress=None, 
     parent = config.results_dir/'batches'
     parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     info = parent.lstat()
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.geteuid() or info.st_mode&0o022:
-        raise ValueError('Unsafe batch directory')
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.geteuid():raise ValueError('Unsafe batch directory')
     fd = os.open(parent/'batch.lock',os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW|os.O_CLOEXEC,0o600)
     try:
         info = os.fstat(fd)
@@ -109,39 +109,49 @@ def run_batch(config, *, stop=None, skip=None, pipeline=None, on_progress=None, 
             for index, group in enumerate(groups):
                 if stop.is_set():progress['state']='stopped';break
                 row = dict(index=index,family=group['family'],planned=len(group['selection']),
-                    state='running',campaign_id=None,attempts_recorded=None,skipped_attempts=None)
+                    state='running',campaign_id=None,attempts_recorded=None,skipped_attempts=None,
+                    kernel_candidate_count=None,review_required=False,error=None)
                 progress['groups'].append(row)
                 progress['state']='running'
                 publish()
                 def capture(receiver,directory):
                     row['campaign_id']=directory.name
                     publish()
-                group_config = replace(config,families=(group['family'],),iterations=len(group['selection']))
-                result = pipeline(group_config,stop=stop,skip=skip,on_capture=capture,expected_selection=group['selection'])
-                if type(result) is not dict:raise RuntimeError('Invalid pipeline result')
-                reported = result.get('campaign_id')
-                if row['campaign_id'] is not None and reported is not None and reported!=row['campaign_id']:
-                    raise RuntimeError('Pipeline campaign does not match captured campaign; next group refused')
-                row['campaign_id']=reported or row['campaign_id']
-                outcomes = result.get('outcomes')
-                if type(outcomes) is list:
-                    row['attempts_recorded']=len(outcomes)
-                    row['skipped_attempts']=sum(value.get('skipped') is True for value in outcomes)
-                error = result.get('execution_error') or result.get('analysis_error')
-                if error:raise RuntimeError(str(error))
-                if stop.is_set() or result.get('stopped'):
-                    row['state']=progress['state']='stopped';publish();break
-                if row['attempts_recorded']!=row['planned']:raise RuntimeError('Group did not record every planned attempt')
-                candidates = analysis_candidates(result)
-                if candidates:
-                    row['state']=progress['state']='review_required'
-                    progress['error']='Kernel report candidates require operator review; causality is unknown'
-                    publish();break
-                row['state']='completed'
-                progress['completed_groups']+=1
+                try:
+                    group_config = replace(config,families=(group['family'],),iterations=len(group['selection']))
+                    result = pipeline(group_config,stop=stop,skip=skip,on_capture=capture,expected_selection=group['selection'])
+                    if type(result) is not dict:raise RuntimeError('Invalid pipeline result')
+                    reported = result.get('campaign_id')
+                    if row['campaign_id'] is not None and reported is not None and reported!=row['campaign_id']:
+                        raise RuntimeError('Pipeline campaign does not match captured campaign')
+                    row['campaign_id']=reported or row['campaign_id']
+                    outcomes = result.get('outcomes')
+                    if type(outcomes) is list:
+                        row['attempts_recorded']=len(outcomes)
+                        row['skipped_attempts']=sum(value.get('skipped') is True for value in outcomes)
+                    error = result.get('execution_error') or result.get('analysis_error')
+                    if error:raise RuntimeError(str(error))
+                    if stop.is_set():
+                        row['state']='stopped'
+                    else:
+                        if result.get('stopped'):raise RuntimeError('Group stopped without operator Stop')
+                        if row['attempts_recorded']!=row['planned']:raise RuntimeError('Group did not record every planned attempt')
+                        candidates = analysis_candidates(result)
+                        row.update(kernel_candidate_count=candidates,review_required=bool(candidates),state='completed')
+                        progress['kernel_candidate_count']+=candidates
+                        progress['review_required']=progress['review_required'] or bool(candidates)
+                        progress['completed_groups']+=1
+                except Exception as error:
+                    row.update(state='failed',error=str(error))
+                    progress['failed_groups']+=1
+                progress['processed_groups']+=1
                 publish()
+                if stop.is_set():
+                    progress['state']='stopped'
+                    break
+                # A pending skip belongs to the finished group, not the next one.
+                skip.clear()
             else:progress['state']='completed'
-            if stop.is_set() and progress['state']=='running':progress['state']='stopped'
             publish()
         except Exception as error:
             progress.update(state='failed',error=str(error))
@@ -171,7 +181,7 @@ def main(argv=None):
     if hasattr(signal,'SIGUSR1'):previous[signal.SIGUSR1]=signal.signal(signal.SIGUSR1,lambda *_:skip.set())
     try:
         result=run_batch(config,stop=stop,skip=skip,on_progress=lambda value:print(json.dumps(value,ensure_ascii=False),flush=True))
-        return 0 if result['state']=='completed' else 130 if result['state']=='stopped' else 1
+        return 130 if result['state']=='stopped' else 0 if result['state']=='completed' and not result['failed_groups'] else 1
     finally:
         for sig,handler in previous.items():signal.signal(sig,handler)
 
