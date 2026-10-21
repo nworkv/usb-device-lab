@@ -32,5 +32,15 @@ jobs:
           for script in (legacy, research, events, controls, research + events + controls):
               subprocess.run(['node', '--check'], input=script, check=True)
           PY
+      - name: Focused RPC and host-agent cleanup gate
+        run: python scripts/check_rpc_cleanup.py
+      - name: Upload cleanup report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpc-cleanup-python-${{ matrix.python }}
+          path: build/rpc-cleanup-report.json
+          if-no-files-found: warn
       - name: All unit and software integration tests
+        if: ${{ !cancelled() }}
         run: make test
