@@ -17,7 +17,7 @@ while (($#)); do
 done
 [[ $EUID != 0 ]] || { echo 'Run as ordinary operator, NOT sudo bash' >&2; exit 2; }
 [[ "$REPO" == /* && "$CONFIG" == /* ]] || { echo 'Absolute repo/config paths required' >&2; exit 2; }
-[[ -f "$REPO/usb_device_lab/dual_cli.py" ]] || { echo 'Apply dual-transport patch to checkout first' >&2; exit 2; }
+[[ -f "$REPO/usb_device_lab/dual_cli.py" ]] || { echo 'Use the current feature/uart-agentless checkout containing dual_cli.py' >&2; exit 2; }
 if ((INSTALL)); then
   sudo apt-get update
   sudo apt-get install -y git python3 python3-venv python3-pip nodejs openssh-client
@@ -33,6 +33,7 @@ cd "$REPO"
 "$PY" scripts/check_uart_checkpoint_source.py
 mkdir -p "$HOME/.local/state/usb-device-lab/setup-logs"
 "$PY" scripts/run_uart_tests.py --output "$HOME/.local/state/usb-device-lab/setup-logs/dual-uart-regression-$$.json"
+"$PY" scripts/check_rpc_cleanup.py --report "$HOME/.local/state/usb-device-lab/setup-logs/dual-rpc-cleanup-$$.json"
 "$PY" -m unittest discover -s tests -p 'test_*.py' -v
 "$PY" - <<'PY'
 import subprocess
