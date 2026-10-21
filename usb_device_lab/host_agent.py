@@ -38,6 +38,7 @@ def main():
     namespace = f'{os.uname().release}:{Path("/proc/sys/kernel/random/boot_id").read_text().strip()}:{args.bus}'
     child = logs = rpc = None
     evidence = {}
+    payload = None
     with tempfile.TemporaryFile(mode='w+') as stderr:
         try:
             emit({'ready': True, 'namespace': namespace})
@@ -79,37 +80,30 @@ def main():
         except Exception as error:
             payload = {'error': str(error), 'namespace': namespace,
                        'coverage_valid': False, 'pcs': []}
+        finally:
+            cleanup_errors = []
             if child is not None:
                 try:
                     if child.poll() is None:
                         child.kill()
                     child.wait(timeout=3)
-                except Exception as cleanup_error:
-                    payload['collector_cleanup_error'] = str(cleanup_error)
-            cleanup_errors = close_rpc_streams(child, rpc)
+                except Exception as error:
+                    cleanup_errors.append('collector stop: ' + str(error))
+            cleanup_errors.extend(close_rpc_streams(child, rpc))
+            evidence.update(close_logs(logs))
             if cleanup_errors:
-                previous = payload.get('collector_cleanup_error')
-                payload['collector_cleanup_error'] = '; '.join(
-                    ([previous] if previous else []) + cleanup_errors)
-            payload.update(evidence)
-            payload.update(close_logs(logs))
-            logs = None
-            stderr.flush()
-            stderr.seek(0)
-            payload['collector_stderr'] = stderr.read(16384)
+                if payload is None:
+                    payload = {'error': 'collector cleanup failed', 'namespace': namespace,
+                               'coverage_valid': False, 'pcs': []}
+                payload['collector_cleanup_error'] = '; '.join(cleanup_errors)
+            if payload is not None:
+                payload.update(evidence)
+                stderr.flush()
+                stderr.seek(0)
+                payload['collector_stderr'] = stderr.read(16384)
+        if payload is not None:
             emit(payload)
             return 1
-        finally:
-            if child is not None:
-                try:
-                    if child.poll() is None:
-                        child.kill()
-                    child.wait(timeout=3)
-                except Exception:
-                    pass
-            close_rpc_streams(child, rpc)
-            if logs is not None:
-                close_logs(logs)
     return 0
 
 
