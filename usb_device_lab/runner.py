@@ -11,7 +11,7 @@ from pathlib import Path
 from .errors import classify
 from .model import DeviceConfig
 from .mutator import Mutator
-from .rpc import Lines
+from .rpc import Lines, close_rpc_streams
 from .storage import Store
 
 FATAL={'infrastructure','cleanup','coverage_unavailable'}
@@ -75,10 +75,11 @@ def terminate(process, term_timeout=3, kill_timeout=8):
                 raise RuntimeError('child did not exit after SIGKILL; inspect process state and kernel log')
 
 def execute(directory,agent_argv,gadget_argv,seconds):
-    directory=Path(directory);result={'coverage_valid':False,'pcs':[],'errors':[]};agent=gadget=None
+    directory=Path(directory);result={'coverage_valid':False,'pcs':[],'errors':[]};agent=gadget=rpc=None
     with open(directory/'agent.log','w+') as agent_log,open(directory/'executor.log','w+') as gadget_log:
         try:
-            agent=subprocess.Popen(agent_argv,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=agent_log,text=True,bufsize=1,start_new_session=True)
+            agent=subprocess.Popen(agent_argv,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=agent_log,text=False,bufsize=0,start_new_session=True)
+            agent.stdout_is_pipe=True
             rpc=Lines(agent);hello=apply_agent_reply(result,rpc.receive())
             if not hello.get('ready'): raise RuntimeError('host agent not ready')
             rpc.send({'command':'start'})
@@ -102,6 +103,9 @@ def execute(directory,agent_argv,gadget_argv,seconds):
             for process in (gadget,agent):
                 try: terminate(process)
                 except Exception as e: result['errors'].append({'kind':'cleanup','summary':str(e)})
+            for process,reader in ((gadget,None),(agent,rpc)):
+                for error in close_rpc_streams(process,reader):
+                    result['errors'].append({'kind':'cleanup','summary':error})
             for f in (gadget_log,agent_log): f.flush();os.fsync(f.fileno())
             gadget_log.seek(0);result['executor_log']=gadget_log.read(2*1024*1024)
             agent_log.seek(0);result['agent_log']=agent_log.read(16384)
@@ -123,7 +127,7 @@ def campaign(seeds,output,agent_argv,iterations,seconds,seed,gadget_module='usb_
                 parent=DeviceConfig.load(rng.choice(store.corpus()))
                 config,mutation=(parent,[]) if iteration==0 else mutator.mutate(parent)
                 ident=store.begin(config,{'parent':parent.digest,'mutation':mutation,'prng_seed':seed,'iteration':iteration})
-                gadget=[sys.executable,'-u','-m',gadget_module,str(store.root/'runs'/ident/'config.json')]
+                gadget=[sys.executable,'-u','-m','usb_device_lab.device',str(store.root/'runs'/ident/'config.json')]
                 result=execute(store.root/'runs'/ident,agent_argv,gadget,seconds)
                 result['iteration']=iteration;new=store.finish(ident,config,result)
                 outcomes.append(run_summary(ident,result,new));print(json.dumps(outcomes[-1]),flush=True)
@@ -142,4 +146,4 @@ def main():
     argv=['ssh','-T','-oBatchMode=yes','-oConnectTimeout=10',a.host,a.agent_command]
     campaign(a.seeds,a.output,argv,a.iterations,a.seconds,a.seed)
 
-if __name__=='__main__': main()
+if __name__ == '__main__': main()
