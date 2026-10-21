@@ -143,6 +143,7 @@ def run_campaign(config, seeds, *, stop=None, receiver_factory=None, command_fac
             save(directory / 'started.json', dict(attempt_id=directory.name, capture_id=ident,
                 start_ns=start, parent_digest=parent.digest, mutation=trace, iteration=iteration))
             process, active_start, active_end, fatal = None, start, start, None
+            executor_error = None
             completed = False
             try:
                 if pause(config.pre_run_quiet_seconds) and not stop.is_set():
@@ -165,8 +166,8 @@ def run_campaign(config, seeds, *, stop=None, receiver_factory=None, command_fac
                             if process is not None:
                                 terminate(process)
                             log.flush(); os.fsync(log.fileno())
-                    if process.returncode not in (0, -signal.SIGTERM, -signal.SIGKILL) or not completed and not stop.is_set() and not skip.is_set():
-                        raise RuntimeError('Executor exited before window completion: %s' % process.returncode)
+                    if not stop.is_set() and not skip.is_set() and (process.returncode not in (0, -signal.SIGTERM, -signal.SIGKILL) or not completed):
+                        executor_error = 'Executor exited before window completion: %s' % process.returncode
                     pause(config.post_run_capture_seconds)
             except Exception as error:
                 fatal = str(error)
@@ -184,7 +185,8 @@ def run_campaign(config, seeds, *, stop=None, receiver_factory=None, command_fac
                 save(directory / 'window.json', asdict(AttemptWindow(directory.name, ident, start, end, active_start, active_end)))
                 skipped = skip.is_set() and not stop.is_set() and fatal is None
                 result = dict(iteration=iteration, window_completed=completed and not skipped, interrupted=stop.is_set(),
-                    skipped=skipped, infrastructure_error=fatal, executor_returncode=process.returncode if process is not None else None,
+                    skipped=skipped, infrastructure_error=fatal, executor_error=executor_error,
+                    executor_returncode=process.returncode if process is not None else None,
                     capture_status=receiver.status(), mode=config.telemetry_mode, completeness='unknown',
                     coverage_valid=False, pcs=[], causal=False, capture_id=ident)
                 save(directory / 'result.json', result); outcomes.append(result)

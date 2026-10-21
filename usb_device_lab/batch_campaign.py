@@ -87,7 +87,8 @@ def run_batch(config, *, stop=None, skip=None, pipeline=None, on_progress=None, 
     parent = config.results_dir/'batches'
     parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     info = parent.lstat()
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.geteuid():raise ValueError('Unsafe batch directory')
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.geteuid() or info.st_mode&0o022:
+        raise ValueError('Unsafe batch directory')
     fd = os.open(parent/'batch.lock',os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW|os.O_CLOEXEC,0o600)
     try:
         info = os.fstat(fd)
