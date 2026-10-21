@@ -6,7 +6,7 @@ import sys
 import tempfile
 from pathlib import Path
 from .host_logs import KernelLogs
-from .rpc import Lines
+from .rpc import Lines, close_rpc_streams
 
 
 def emit(value):
@@ -36,7 +36,7 @@ def main():
     if not 1 <= args.bus <= 255:
         raise SystemExit('bus must be 1..255')
     namespace = f'{os.uname().release}:{Path("/proc/sys/kernel/random/boot_id").read_text().strip()}:{args.bus}'
-    child = logs = None
+    child = logs = rpc = None
     evidence = {}
     with tempfile.TemporaryFile(mode='w+') as stderr:
         try:
@@ -47,7 +47,8 @@ def main():
                     evidence = {}
                     logs = KernelLogs()
                     child = subprocess.Popen([args.collector, str(args.bus)], stdin=subprocess.PIPE,
-                        stdout=subprocess.PIPE, stderr=stderr, text=True, bufsize=1)
+                        stdout=subprocess.PIPE, stderr=stderr, text=False, bufsize=0)
+                    child.stdout_is_pipe = True
                     rpc = Lines(child)
                     if not rpc.receive().get('ready'):
                         raise RuntimeError('collector not ready')
@@ -62,7 +63,10 @@ def main():
                     child.wait(timeout=3)
                     if child.returncode:
                         raise RuntimeError('collector failed')
-                    child = None
+                    cleanup_errors = close_rpc_streams(child, rpc)
+                    if cleanup_errors:
+                        raise RuntimeError('; '.join(cleanup_errors))
+                    child = rpc = None
                     evidence = close_logs(logs)
                     result.update(evidence)
                     logs = None
@@ -82,8 +86,11 @@ def main():
                     child.wait(timeout=3)
                 except Exception as cleanup_error:
                     payload['collector_cleanup_error'] = str(cleanup_error)
-                else:
-                    child = None
+            cleanup_errors = close_rpc_streams(child, rpc)
+            if cleanup_errors:
+                previous = payload.get('collector_cleanup_error')
+                payload['collector_cleanup_error'] = '; '.join(
+                    ([previous] if previous else []) + cleanup_errors)
             payload.update(evidence)
             payload.update(close_logs(logs))
             logs = None
@@ -100,6 +107,7 @@ def main():
                     child.wait(timeout=3)
                 except Exception:
                     pass
+            close_rpc_streams(child, rpc)
             if logs is not None:
                 close_logs(logs)
     return 0
